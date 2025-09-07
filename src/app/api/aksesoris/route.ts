@@ -1,97 +1,80 @@
 import { NextResponse } from "next/server";
 import { sql } from "@/lib/db";
 
-/** GET /api/aksesoris?status=READY|SOLD|ALL&q=iphone&page=1&pageSize=20&from=YYYY-MM-DD&to=YYYY-MM-DD */
+type Row = {
+  id: number;
+  sku: string;
+  nama_produk: string;
+  warna: string | null;
+  stok: number;
+  harga_modal: number;
+  created_at: string;
+};
+
+/** GET /api/aksesoris?q=case&page=1&pageSize=20 */
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
-  const status = (searchParams.get("status") || "ALL").toUpperCase();
   const q = (searchParams.get("q") || "").trim().toLowerCase();
-  const from = searchParams.get("from") || "";
-  const to = searchParams.get("to") || "";
   const page = Math.max(1, Number(searchParams.get("page") || 1));
   const pageSize = Math.min(100, Math.max(1, Number(searchParams.get("pageSize") || 20)));
   const offset = (page - 1) * pageSize;
 
-  const whereStatus =
-    status === "READY" || status === "SOLD" ? sql` and status = ${status}` : sql``;
-
-  const qFilter = q
-    ? sql` and (
+  const filter = q
+    ? sql` where
         lower(nama_produk) like ${"%" + q + "%"} or
         lower(sku)         like ${"%" + q + "%"} or
-        lower(warna)       like ${"%" + q + "%"} or
-        lower(storage)     like ${"%" + q + "%"} or
-        lower(asal_produk) like ${"%" + q + "%"}
-      )`
+        lower(coalesce(warna, '')) like ${"%" + q + "%"}`
     : sql``;
 
-  const fromFilter = from ? sql` and tanggal_masuk >= ${from}` : sql``;
-  const toFilter   = to   ? sql` and tanggal_masuk <= ${to}`   : sql``;
-
-  const rows = await sql`
-    select id, sku, nama_produk, warna, storage, garansi, asal_produk,
-           harga_modal, tanggal_masuk, status, created_at
+  const rows = await sql<Row[]>`
+    select id, sku, nama_produk, warna, coalesce(stok,0) as stok, harga_modal, created_at
     from stok_aksesoris
-    where 1=1
-      ${whereStatus}
-      ${qFilter}
-      ${fromFilter}
-      ${toFilter}
-    order by tanggal_masuk desc, created_at desc
+    ${filter}
+    order by created_at desc
     limit ${pageSize} offset ${offset}
   `;
 
-  const [{ c: total }] = await sql`
+  const [{ c: total }] = await sql<{ c: number }[]>`
     select count(*)::int as c
     from stok_aksesoris
-    where 1=1
-      ${whereStatus}
-      ${qFilter}
-      ${fromFilter}
-      ${toFilter}
+    ${filter}
   `;
 
   return NextResponse.json({ ok: true, data: rows, page, pageSize, total });
 }
 
+/** Body: { nama_produk, sku, warna?, stok, harga_modal } (upsert by SKU) */
 export async function POST(req: Request) {
   try {
-    const body = await req.json();
-    const {
-      nama_produk,
-      sku,
-      warna = null,
-      storage = null,
-      garansi = null,
-      asal_produk = null,
-      harga_modal,
-      tanggal_masuk, // YYYY-MM-DD
-    } = body as {
+    const body = (await req.json()) as {
       nama_produk: string;
       sku: string;
       warna?: string | null;
-      storage?: string | null;
-      garansi?: string | null;
-      asal_produk?: string | null;
-      harga_modal: number;
-      tanggal_masuk: string;
+      stok: number | string;
+      harga_modal: number | string;
     };
 
-    if (!nama_produk || !sku || !harga_modal || !tanggal_masuk) {
+    const nama_produk = (body.nama_produk || "").trim();
+    const sku = (body.sku || "").trim();
+    const warna = (body.warna?.toString().trim() || null) as string | null;
+    const stok = Number(body.stok);
+    const harga_modal = Number(body.harga_modal);
+
+    if (!nama_produk || !sku || !Number.isFinite(stok) || !Number.isFinite(harga_modal)) {
       return NextResponse.json(
-        { ok: false, error: "nama_produk, sku, harga_modal, tanggal_masuk wajib" },
+        { ok: false, error: "nama_produk, sku, stok, harga_modal wajib & valid" },
         { status: 400 }
       );
     }
 
     const res = await sql`
-      insert into stok_aksesoris (
-        sku, nama_produk, warna, storage, garansi, asal_produk,
-        harga_modal, tanggal_masuk, status
-      ) values (
-        ${sku}, ${nama_produk}, ${warna}, ${storage}, ${garansi}, ${asal_produk},
-        ${harga_modal}, ${tanggal_masuk}, 'READY'
-      )
+      insert into stok_aksesoris (sku, nama_produk, warna, stok, harga_modal)
+      values (${sku}, ${nama_produk}, ${warna}, ${stok}, ${harga_modal})
+      on conflict (sku) do update set
+        nama_produk = excluded.nama_produk,
+        warna       = excluded.warna,
+        stok        = excluded.stok,
+        harga_modal = excluded.harga_modal
       returning id
     `;
 
