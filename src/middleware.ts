@@ -1,7 +1,7 @@
 // src/middleware.ts
 import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 
-// daftar route PUBLIC (tanpa login)
+// route PUBLIC (tanpa login)
 const isPublicRoute = createRouteMatcher([
   "/sign-in(.*)",
   "/sign-up(.*)",
@@ -9,12 +9,10 @@ const isPublicRoute = createRouteMatcher([
 ]);
 
 export default clerkMiddleware(async (auth, req) => {
-  // auth adalah fungsi async → harus di-await dulu
   const a = await auth();
-
-  // kalau bukan public, wajib login
-  if (!isPublicRoute(req)) {
-    a.protect();
+  // kalau route bukan public & belum login → redirect ke Sign In
+  if (!isPublicRoute(req) && !a.userId) {
+    return a.redirectToSignIn();
   }
 });
 
