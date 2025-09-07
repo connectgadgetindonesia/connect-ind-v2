@@ -1,217 +1,159 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 
-// -------------------- Types --------------------
-type SaleRow = {
+type Row = {
   id: number;
-  invoice_id: string;
-  tanggal: string; // ISO date
-  jenis: "UNIT" | "AKSESORIS";
-  sn_sku: string;
+  tanggal: string;
   nama_produk: string;
-  warna: string | null;
-  storage: string | null;
-  garansi: string | null;
-  harga_modal: number;
+  sn_sku: string;
   harga_jual: number;
-  laba: number;
+  harga_modal: number | null;
+  laba: number | null;
   dilayani_oleh: string | null;
   referal: string | null;
-  created_at: string; // ISO datetime
 };
 
-type SaleListRes = {
-  ok: boolean;
-  data: SaleRow[];
-  page: number;
-  pageSize: number;
-  total: number;
-  error?: string;
-};
-
-export type ReadyStockOption = {
-  id: number;
-  nama_produk: string;
-  serial_number: string | null;
-  imei: string | null;
-  storage: string | null;
-  warna: string | null;
-  garansi: string | null;
-  harga_modal: number;
-};
-
-// — tipe response untuk /api/stok (READY) —
-type StockMinimal = ReadyStockOption;
-
-type StockListRes = {
-  ok: boolean;
-  data: StockMinimal[];
-  page: number;
-  pageSize: number;
-  total: number;
-  error?: string;
-};
-
-// -------------------- Utils --------------------
-function rp(n: number) {
-  return new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 }).format(n);
-}
-function fmtDate(d: string) {
-  const dt = new Date(d);
-  if (Number.isNaN(dt.getTime())) return d;
-  return dt.toLocaleDateString("id-ID");
-}
-
-// -------------------- Page --------------------
 export default function PenjualanPage() {
-  // filter
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
+  // ---- table & filter (ringkas) ----
+  const [rows, setRows] = useState<Row[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
   const [q, setQ] = useState("");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
 
-  // list state
-  const [rows, setRows] = useState<SaleRow[]>([]);
-  const [page, setPage] = useState(1);
-  const [pageSize] = useState(20);
-  const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(false);
+  const query = useMemo(() => {
+    const sp = new URLSearchParams();
+    if (q) sp.set("q", q);
+    if (from) sp.set("from", from);
+    if (to) sp.set("to", to);
+    return sp.toString();
+  }, [q, from, to]);
 
-  // ready stock (untuk modal input penjualan)
-  const [ready, setReady] = useState<ReadyStockOption[]>([]);
-
-  const totalPages = useMemo(() => Math.max(1, Math.ceil(total / pageSize)), [total, pageSize]);
-
-  // Ambil daftar penjualan
-  const loadList = useCallback(async () => {
-    setLoading(true);
-    try {
-      const p = new URLSearchParams();
-      if (q.trim()) p.set("q", q.trim());
-      if (from) p.set("from", from);
-      if (to) p.set("to", to);
-      p.set("page", String(page));
-      p.set("pageSize", String(pageSize));
-
-      const res = await fetch(`/api/penjualan?${p.toString()}`, { cache: "no-store" });
-      const j: SaleListRes = await res.json();
-      if (j.ok) {
-        setRows(j.data);
-        setTotal(j.total);
-      } else {
-        setRows([]);
-        setTotal(0);
+  useEffect(() => {
+    let abort = false;
+    (async () => {
+      setLoading(true);
+      const res = await fetch(`/api/penjualan${query ? `?${query}` : ""}`);
+      const data = await res.json();
+      if (!abort) {
+        setRows(data?.data ?? []);
+        setLoading(false);
       }
-    } finally {
-      setLoading(false);
-    }
-  }, [from, to, page, pageSize, q]);
+    })();
+    return () => {
+      abort = true;
+    };
+  }, [query]);
 
-  // Ambil stok READY untuk dipakai di form penjualan (tanpa any)
-  const loadReady = useCallback(async () => {
-    const res = await fetch("/api/stok?status=READY&page=1&pageSize=100", { cache: "no-store" });
-    const j: StockListRes = await res.json();
+  // ---- modal open/close sinkron dengan ?aksi=tambah ----
+  const aksi = searchParams.get("aksi");
+  const open = aksi === "tambah";
 
-    if (j.ok) {
-      const map: ReadyStockOption[] = j.data.map((r) => ({
-        id: r.id,
-        nama_produk: r.nama_produk,
-        serial_number: r.serial_number,
-        imei: r.imei,
-        storage: r.storage,
-        warna: r.warna,
-        garansi: r.garansi,
-        harga_modal: r.harga_modal,
-      }));
-      setReady(map);
-    } else {
-      setReady([]);
-    }
-  }, []);
+  const openModal = () => {
+    const sp = new URLSearchParams(searchParams.toString());
+    sp.set("aksi", "tambah");
+    router.push(`/penjualan?${sp.toString()}`, { scroll: false });
+  };
 
-  useEffect(() => {
-    loadList();
-  }, [loadList]);
+  const closeModal = () => {
+    const sp = new URLSearchParams(searchParams.toString());
+    sp.delete("aksi");
+    const qs = sp.toString();
+    router.push(qs ? `/penjualan?${qs}` : "/penjualan", { scroll: false });
+  };
 
-  useEffect(() => {
-    loadReady();
-  }, [loadReady]);
+  const reload = () => {
+    // cukup trigger ulang effect dengan menyetel ulang state minimal
+    setQ((s) => s); // no-op
+  };
 
   return (
-    <div className="max-w-6xl mx-auto px-4 py-8">
-      <div className="mb-6 flex items-center justify-between gap-3">
+    <div className="mx-auto max-w-6xl px-4 py-6">
+      <div className="mb-4 flex items-center justify-between">
         <h1 className="text-xl font-semibold">Penjualan</h1>
-
-        {/* Tombol input penjualan */}
-        <a
-          href="/penjualan?aksi=tambah" // bisa diarahkan ke modal/halaman form
-          className="inline-flex items-center rounded-md border border-black bg-black px-4 py-2 text-sm font-medium text-white hover:opacity-90"
+        <button
+          onClick={openModal}
+          className="rounded-md bg-black px-4 py-2 text-white hover:opacity-90"
         >
           Tambah Penjualan
-        </a>
+        </button>
       </div>
 
-      {/* Filter bar */}
-      <div className="mb-4 flex flex-wrap items-center gap-2">
+      {/* Filter ringkas */}
+      <div className="mb-3 flex flex-wrap gap-2">
         <input
           value={q}
           onChange={(e) => setQ(e.target.value)}
           placeholder="Cari (produk/SN/IMEI/pelayan)"
-          className="w-72 rounded-md border px-3 py-2 text-sm outline-none"
+          className="h-9 w-72 rounded border px-3"
         />
         <input
           type="date"
           value={from}
           onChange={(e) => setFrom(e.target.value)}
-          className="rounded-md border px-3 py-2 text-sm outline-none"
+          className="h-9 rounded border px-3"
         />
         <input
           type="date"
           value={to}
           onChange={(e) => setTo(e.target.value)}
-          className="rounded-md border px-3 py-2 text-sm outline-none"
+          className="h-9 rounded border px-3"
         />
         <button
-          onClick={() => { setPage(1); loadList(); }}
-          className="rounded-md border border-black bg-black px-4 py-2 text-sm font-medium text-white hover:opacity-90"
+          onClick={() => reload()}
+          className="h-9 rounded border px-3 hover:bg-gray-50"
         >
           Terapkan
         </button>
       </div>
 
-      {/* Tabel */}
-      <div className="rounded-md border">
-        <table className="w-full border-collapse text-sm">
-          <thead>
-            <tr className="bg-gray-50 text-left">
-              <th className="p-2 border-b">Tanggal</th>
-              <th className="p-2 border-b">Produk</th>
-              <th className="p-2 border-b">SN / IMEI</th>
-              <th className="p-2 border-b">Pembeli</th>
-              <th className="p-2 border-b">Harga Jual</th>
-              <th className="p-2 border-b">Modal</th>
-              <th className="p-2 border-b">Laba</th>
-              <th className="p-2 border-b">Dilayani</th>
-              <th className="p-2 border-b">Referal</th>
+      <div className="overflow-hidden rounded border">
+        <table className="w-full text-sm">
+          <thead className="bg-gray-50">
+            <tr>
+              <th className="p-2 text-left">Tanggal</th>
+              <th className="p-2 text-left">Produk</th>
+              <th className="p-2 text-left">SN / IMEI</th>
+              <th className="p-2 text-right">Harga Jual</th>
+              <th className="p-2 text-right">Modal</th>
+              <th className="p-2 text-right">Laba</th>
+              <th className="p-2 text-left">Dilayani</th>
+              <th className="p-2 text-left">Referal</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={9} className="p-6 text-center text-gray-500">Memuat...</td></tr>
+              <tr>
+                <td className="p-3 text-center" colSpan={8}>
+                  Memuat...
+                </td>
+              </tr>
             ) : rows.length === 0 ? (
-              <tr><td colSpan={9} className="p-6 text-center text-gray-500">Tidak ada data.</td></tr>
+              <tr>
+                <td className="p-3 text-center" colSpan={8}>
+                  Tidak ada data.
+                </td>
+              </tr>
             ) : (
               rows.map((r) => (
-                <tr key={r.id} className="hover:bg-gray-50">
-                  <td className="p-2 border-b">{fmtDate(r.tanggal)}</td>
-                  <td className="p-2 border-b">{r.nama_produk}</td>
-                  <td className="p-2 border-b">{r.sn_sku}</td>
-                  <td className="p-2 border-b">{/* nama pembeli kalau disimpan */}</td>
-                  <td className="p-2 border-b text-right">{rp(r.harga_jual)}</td>
-                  <td className="p-2 border-b text-right">{rp(r.harga_modal)}</td>
-                  <td className="p-2 border-b text-right">{rp(r.laba)}</td>
-                  <td className="p-2 border-b">{r.dilayani_oleh ?? "-"}</td>
-                  <td className="p-2 border-b">{r.referal ?? "-"}</td>
+                <tr key={r.id} className="border-t">
+                  <td className="p-2">{new Date(r.tanggal).toLocaleDateString()}</td>
+                  <td className="p-2">{r.nama_produk}</td>
+                  <td className="p-2">{r.sn_sku}</td>
+                  <td className="p-2 text-right">{formatIDR(r.harga_jual)}</td>
+                  <td className="p-2 text-right">
+                    {r.harga_modal == null ? "-" : formatIDR(r.harga_modal)}
+                  </td>
+                  <td className="p-2 text-right">
+                    {r.laba == null ? "-" : formatIDR(r.laba)}
+                  </td>
+                  <td className="p-2">{r.dilayani_oleh ?? "-"}</td>
+                  <td className="p-2">{r.referal ?? "-"}</td>
                 </tr>
               ))
             )}
@@ -219,29 +161,254 @@ export default function PenjualanPage() {
         </table>
       </div>
 
-      {/* Footer pagination */}
-      <div className="mt-3 flex items-center justify-between text-xs text-gray-600">
-        <div>Total {total} data • Hal {page} / {totalPages}</div>
-        <div className="flex gap-2">
-          <button
-            disabled={page <= 1}
-            onClick={() => setPage((p) => Math.max(1, p - 1))}
-            className="rounded-md border px-3 py-1 disabled:opacity-40"
-          >
-            Prev
-          </button>
-          <button
-            disabled={page >= totalPages}
-            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-            className="rounded-md border px-3 py-1 disabled:opacity-40"
-          >
-            Next
+      {open && <TambahPenjualanModal onClose={closeModal} onSaved={reload} />}
+    </div>
+  );
+}
+
+function formatIDR(n: number) {
+  try {
+    return new Intl.NumberFormat("id-ID").format(n);
+  } catch {
+    return String(n);
+  }
+}
+
+function todayISO(): string {
+  const d = new Date();
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function TambahPenjualanModal({
+  onClose,
+  onSaved,
+}: {
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [jenis, setJenis] = useState<"UNIT" | "AKSESORIS">("UNIT");
+  const [invoice, setInvoice] = useState<string>(
+    `INV-${Date.now().toString().slice(-8)}`
+  );
+  const [tanggal, setTanggal] = useState<string>(todayISO());
+  const [snSku, setSnSku] = useState<string>("");
+  const [namaProduk, setNamaProduk] = useState<string>("");
+  const [warna, setWarna] = useState<string>("");
+  const [storage, setStorage] = useState<string>("");
+  const [garansi, setGaransi] = useState<string>("");
+  const [pembeli, setPembeli] = useState<string>("");
+  const [alamat, setAlamat] = useState<string>("");
+  const [noWa, setNoWa] = useState<string>("");
+  const [hargaJual, setHargaJual] = useState<number>(0);
+  const [referal, setReferal] = useState<string>("");
+
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string>("");
+
+  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setSubmitting(true);
+    setError("");
+
+    const payload = {
+      invoice_id: invoice,
+      jenis,
+      sn_sku: snSku.trim(),
+      tanggal,
+      nama_pembeli: pembeli || null,
+      alamat: alamat || null,
+      no_wa: noWa || null,
+      nama_produk: namaProduk,
+      warna: warna || null,
+      storage: storage || null,
+      garansi: garansi || null,
+      harga_jual: Number(hargaJual),
+      referal: referal || null,
+    };
+
+    const res = await fetch("/api/penjualan", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+
+    const data: { ok?: boolean; error?: string } = await res.json();
+    setSubmitting(false);
+
+    if (!res.ok || !data.ok) {
+      setError(data.error ?? "Gagal menyimpan penjualan.");
+      return;
+    }
+
+    onClose();
+    onSaved();
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 p-4"
+      role="dialog"
+      aria-modal="true"
+    >
+      <div className="w-full max-w-2xl rounded-lg bg-white">
+        <div className="flex items-center justify-between border-b px-4 py-3">
+          <h2 className="font-medium">Tambah Penjualan</h2>
+          <button onClick={onClose} className="opacity-70 hover:opacity-100">
+            ✕
           </button>
         </div>
-      </div>
 
-      {/* Data stok ready sudah tersedia di state `ready` bila dibutuhkan untuk form */}
-      {/* Contoh akses: ready.map(r => r.nama_produk) */}
+        <form onSubmit={handleSubmit} className="space-y-3 px-4 py-4">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div>
+              <label className="mb-1 block text-sm">Invoice *</label>
+              <input
+                value={invoice}
+                onChange={(e) => setInvoice(e.target.value)}
+                className="w-full rounded border px-3 py-2"
+                required
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm">Tanggal *</label>
+              <input
+                type="date"
+                value={tanggal}
+                onChange={(e) => setTanggal(e.target.value)}
+                className="w-full rounded border px-3 py-2"
+                required
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm">Jenis *</label>
+              <select
+                value={jenis}
+                onChange={(e) => setJenis(e.target.value as "UNIT" | "AKSESORIS")}
+                className="w-full rounded border px-3 py-2"
+                required
+              >
+                <option value="UNIT">UNIT</option>
+                <option value="AKSESORIS">AKSESORIS</option>
+              </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-sm">SN / SKU *</label>
+              <input
+                value={snSku}
+                onChange={(e) => setSnSku(e.target.value)}
+                className="w-full rounded border px-3 py-2"
+                placeholder="Contoh: IMEI / SN / SKU"
+                required
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm">Nama produk *</label>
+              <input
+                value={namaProduk}
+                onChange={(e) => setNamaProduk(e.target.value)}
+                className="w-full rounded border px-3 py-2"
+                required
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm">Harga jual *</label>
+              <input
+                type="number"
+                min={0}
+                value={Number.isNaN(hargaJual) ? 0 : hargaJual}
+                onChange={(e) => setHargaJual(Number(e.target.value))}
+                className="w-full rounded border px-3 py-2"
+                required
+              />
+            </div>
+
+            <div>
+              <label className="mb-1 block text-sm">Warna</label>
+              <input
+                value={warna}
+                onChange={(e) => setWarna(e.target.value)}
+                className="w-full rounded border px-3 py-2"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm">Storage</label>
+              <input
+                value={storage}
+                onChange={(e) => setStorage(e.target.value)}
+                className="w-full rounded border px-3 py-2"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm">Garansi</label>
+              <input
+                value={garansi}
+                onChange={(e) => setGaransi(e.target.value)}
+                className="w-full rounded border px-3 py-2"
+              />
+            </div>
+
+            <div>
+              <label className="mb-1 block text-sm">Nama pembeli</label>
+              <input
+                value={pembeli}
+                onChange={(e) => setPembeli(e.target.value)}
+                className="w-full rounded border px-3 py-2"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm">No. WA</label>
+              <input
+                value={noWa}
+                onChange={(e) => setNoWa(e.target.value)}
+                className="w-full rounded border px-3 py-2"
+              />
+            </div>
+            <div className="sm:col-span-2">
+              <label className="mb-1 block text-sm">Alamat</label>
+              <input
+                value={alamat}
+                onChange={(e) => setAlamat(e.target.value)}
+                className="w-full rounded border px-3 py-2"
+              />
+            </div>
+            <div className="sm:col-span-2">
+              <label className="mb-1 block text-sm">Referal</label>
+              <input
+                value={referal}
+                onChange={(e) => setReferal(e.target.value)}
+                className="w-full rounded border px-3 py-2"
+                placeholder="(opsional)"
+              />
+            </div>
+          </div>
+
+          {error && (
+            <div className="rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">
+              {error}
+            </div>
+          )}
+
+          <div className="mt-2 flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded border px-4 py-2 hover:bg-gray-50"
+            >
+              Batal
+            </button>
+            <button
+              type="submit"
+              disabled={submitting}
+              className="rounded bg-black px-4 py-2 text-white hover:opacity-90 disabled:opacity-60"
+            >
+              {submitting ? "Menyimpan..." : "Simpan"}
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   );
 }
