@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
-type Row = {
+// ---------- Types ----------
+type StockRow = {
   id: number;
   nama_produk: string;
   serial_number: string | null;
@@ -13,177 +14,182 @@ type Row = {
   asal_produk: string | null;
   harga_modal: number;
   tanggal_masuk: string; // YYYY-MM-DD
-  status: string;
+  status: "READY" | "SOLD";
   created_at: string;
 };
 
-export default function StokPage() {
-  const [rows, setRows] = useState<Row[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [q, setQ] = useState("");
+type StockApiRes = {
+  ok: boolean;
+  data: StockRow[];
+  page: number;
+  pageSize: number;
+  total: number;
+  error?: string;
+};
 
-  // form state
-  const [f, setF] = useState({
-    nama_produk: "",
-    serial_number: "",
-    imei: "",
-    storage: "",
-    warna: "",
-    garansi: "",
-    asal_produk: "",
-    harga_modal: "",
-    tanggal_masuk: "",
-  });
-
-  const fmtRp = (n: number) => `Rp ${n.toLocaleString("id-ID")}`;
-
-  async function load() {
-    setLoading(true);
-    const sp = new URLSearchParams();
-    if (q.trim()) sp.set("q", q.trim());
-    sp.set("pageSize", "100");
-    const r = await fetch(`/api/stok?${sp.toString()}`, { cache: "no-store" });
-    const j = await r.json();
-    setRows(j.data ?? []);
-    setLoading(false);
-  }
-
-  useEffect(() => { load(); }, []);
-
-  function update<K extends keyof typeof f>(k: K, v: string) {
-    setF((s) => ({ ...s, [k]: v }));
-  }
-
-  async function onSubmit(e: React.FormEvent) {
-    e.preventDefault();
-
-    const body = {
-      ...f,
-      harga_modal: Number(f.harga_modal || 0),
-      // kosongkan string "" menjadi null untuk kolom opsional
-      serial_number: f.serial_number.trim() || null,
-      imei: f.imei.trim() || null,
-      storage: f.storage.trim() || null,
-      warna: f.warna.trim() || null,
-      garansi: f.garansi.trim() || null,
-      asal_produk: f.asal_produk.trim() || null,
-    };
-
-    const r = await fetch("/api/stok", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    const j = await r.json();
-    if (!j.ok) {
-      alert(j.error || "Gagal simpan");
-      return;
-    }
-    // reset form
-    setF({
-      nama_produk: "",
-      serial_number: "",
-      imei: "",
-      storage: "",
-      warna: "",
-      garansi: "",
-      asal_produk: "",
-      harga_modal: "",
-      tanggal_masuk: "",
-    });
-    await load();
-  }
-
-  const totalReady = useMemo(
-    () => rows.filter(r => r.status === "READY").length,
-    [rows]
+const rupiah = (n: number) =>
+  new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 }).format(
+    Number.isFinite(n) ? n : 0
   );
 
+export default function StokPage() {
+  const [rows, setRows] = useState<StockRow[]>([]);
+  const [total, setTotal] = useState(0);
+
+  // filters
+  const [status, setStatus] = useState<"" | "READY" | "SOLD">("");
+  const [q, setQ] = useState("");
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const [page, setPage] = useState(1);
+  const pageSize = 20;
+
+  const totalPages = useMemo(() => Math.max(1, Math.ceil(total / pageSize)), [total, pageSize]);
+
+  const load = useCallback(async () => {
+    const params = new URLSearchParams({
+      page: String(page),
+      pageSize: String(pageSize),
+      ...(status ? { status } : {}),
+      ...(q ? { q } : {}),
+      ...(from ? { from } : {}),
+      ...(to ? { to } : {}),
+    });
+
+    const res = await fetch(`/api/stok?${params.toString()}`, { cache: "no-store" });
+    const json: StockApiRes = await res.json();
+
+    if (json.ok) {
+      setRows(json.data);
+      setTotal(json.total);
+    } else {
+      setRows([]);
+      setTotal(0);
+      // console.error(json.error);
+    }
+  }, [page, pageSize, status, q, from, to]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
   return (
-    <div className="max-w-4xl">
-      <h1 className="text-2xl font-semibold mb-4">Stok Unit</h1>
+    <div className="max-w-5xl mx-auto px-4 py-8 space-y-6">
+      <h1 className="text-xl font-semibold">Stok Unit</h1>
 
-      {/* FORM */}
-      <form onSubmit={onSubmit} className="grid grid-cols-2 gap-3 p-4 border rounded-2xl mb-6">
-        <input className="border p-2 rounded" placeholder="Nama produk"
-               value={f.nama_produk} onChange={e => update("nama_produk", e.target.value)} required />
-        <input className="border p-2 rounded" placeholder="Serial number (opsional)"
-               value={f.serial_number} onChange={e => update("serial_number", e.target.value)} />
+      {/* Filter bar */}
+      <div className="grid grid-cols-1 sm:grid-cols-6 gap-3">
+        <select
+          value={status}
+          onChange={(e) => {
+            setStatus(e.target.value as "" | "READY" | "SOLD");
+            setPage(1);
+          }}
+          className="border rounded-md px-3 py-2"
+        >
+          <option value="">Semua status</option>
+          <option value="READY">READY</option>
+          <option value="SOLD">SOLD</option>
+        </select>
 
-        <input className="border p-2 rounded" placeholder="IMEI (opsional)"
-               value={f.imei} onChange={e => update("imei", e.target.value)} />
-        <input className="border p-2 rounded" placeholder="Storage (contoh: 128GB)"
-               value={f.storage} onChange={e => update("storage", e.target.value)} />
-
-        <input className="border p-2 rounded" placeholder="Warna"
-               value={f.warna} onChange={e => update("warna", e.target.value)} />
-        <input className="border p-2 rounded" placeholder="Garansi (contoh: 3 bulan)"
-               value={f.garansi} onChange={e => update("garansi", e.target.value)} />
-
-        <input className="border p-2 rounded" placeholder="Asal produk (supplier/TTB)"
-               value={f.asal_produk} onChange={e => update("asal_produk", e.target.value)} />
-        <input className="border p-2 rounded" type="number" placeholder="Harga modal"
-               value={f.harga_modal} onChange={e => update("harga_modal", e.target.value)} required />
-
-        <input className="border p-2 rounded" type="date" placeholder="Tanggal masuk"
-               value={f.tanggal_masuk} onChange={e => update("tanggal_masuk", e.target.value)} required />
-
-        <div className="col-span-2">
-          <button className="bg-black text-white rounded px-4 py-2">Simpan</button>
-        </div>
-      </form>
-
-      {/* FILTER CARI */}
-      <div className="flex items-center gap-2 mb-3">
         <input
-          className="border p-2 rounded w-72"
-          placeholder="Cari nama/SN/IMEI…"
           value={q}
-          onChange={e => setQ(e.target.value)}
+          onChange={(e) => {
+            setQ(e.target.value);
+            setPage(1);
+          }}
+          placeholder="Cari (produk/SN/IMEI/storage/warna)"
+          className="border rounded-md px-3 py-2 sm:col-span-2"
         />
-        <button className="border px-3 py-2 rounded" onClick={load}>Cari</button>
-        <div className="text-sm text-gray-600 ml-auto">READY: <b>{totalReady}</b></div>
+
+        <input
+          type="date"
+          value={from}
+          onChange={(e) => {
+            setFrom(e.target.value);
+            setPage(1);
+          }}
+          className="border rounded-md px-3 py-2"
+        />
+        <input
+          type="date"
+          value={to}
+          onChange={(e) => {
+            setTo(e.target.value);
+            setPage(1);
+          }}
+          className="border rounded-md px-3 py-2"
+        />
+        <button
+          onClick={() => void load()}
+          className="border rounded-md px-3 py-2 hover:bg-neutral-50"
+        >
+          Terapkan
+        </button>
       </div>
 
-      {/* TABEL */}
-      {loading ? (
-        <div>Memuat…</div>
-      ) : (
-        <div className="overflow-auto">
-          <table className="min-w-[900px] w-full border">
-            <thead className="bg-gray-100">
-              <tr>
-                <th className="p-2 border text-left">Nama</th>
-                <th className="p-2 border text-left">SN</th>
-                <th className="p-2 border text-left">IMEI</th>
-                <th className="p-2 border text-left">Storage</th>
-                <th className="p-2 border text-left">Warna</th>
-                <th className="p-2 border text-left">Garansi</th>
-                <th className="p-2 border text-left">Asal</th>
-                <th className="p-2 border text-right">Modal</th>
-                <th className="p-2 border text-left">Tgl Masuk</th>
-                <th className="p-2 border text-left">Status</th>
+      {/* Tabel */}
+      <div className="overflow-x-auto border rounded-lg">
+        <table className="min-w-[900px] w-full text-sm">
+          <thead className="bg-neutral-50">
+            <tr className="[&>th]:text-left [&>th]:py-2 [&>th]:px-3">
+              <th>Produk</th>
+              <th>SN / IMEI</th>
+              <th>Varian</th>
+              <th>Garansi</th>
+              <th>Asal</th>
+              <th>Modal</th>
+              <th>Tgl Masuk</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.id} className="[&>td]:py-2 [&>td]:px-3 border-t">
+                <td className="font-medium">{r.nama_produk}</td>
+                <td>{[r.serial_number, r.imei].filter(Boolean).join(" / ") || "-"}</td>
+                <td>{[r.storage, r.warna].filter(Boolean).join(" · ") || "-"}</td>
+                <td>{r.garansi || "-"}</td>
+                <td>{r.asal_produk || "-"}</td>
+                <td className="text-right">{rupiah(r.harga_modal)}</td>
+                <td>{r.tanggal_masuk}</td>
+                <td>{r.status}</td>
               </tr>
-            </thead>
-            <tbody>
-              {rows.map((r) => (
-                <tr key={r.id}>
-                  <td className="p-2 border">{r.nama_produk}</td>
-                  <td className="p-2 border">{r.serial_number || "-"}</td>
-                  <td className="p-2 border">{r.imei || "-"}</td>
-                  <td className="p-2 border">{r.storage || "-"}</td>
-                  <td className="p-2 border">{r.warna || "-"}</td>
-                  <td className="p-2 border">{r.garansi || "-"}</td>
-                  <td className="p-2 border">{r.asal_produk || "-"}</td>
-                  <td className="p-2 border text-right">{fmtRp(r.harga_modal)}</td>
-                  <td className="p-2 border">{r.tanggal_masuk}</td>
-                  <td className="p-2 border">{r.status}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+            ))}
+
+            {rows.length === 0 && (
+              <tr>
+                <td colSpan={8} className="text-center py-10 text-neutral-500">
+                  Tidak ada data.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Pagination */}
+      <div className="flex items-center justify-between gap-3">
+        <div className="text-sm text-neutral-600">
+          Total {total} data • Hal {page} / {totalPages}
         </div>
-      )}
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setPage((p) => Math.max(1, p - 1))}
+            disabled={page <= 1}
+            className="border rounded-md px-3 py-2 disabled:opacity-50"
+          >
+            Prev
+          </button>
+          <button
+            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+            disabled={page >= totalPages}
+            className="border rounded-md px-3 py-2 disabled:opacity-50"
+          >
+            Next
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
