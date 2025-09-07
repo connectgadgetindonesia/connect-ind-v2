@@ -65,7 +65,6 @@ export default function StokPage() {
     } else {
       setRows([]);
       setTotal(0);
-      // console.error(json.error);
     }
   }, [page, pageSize, status, q, from, to]);
 
@@ -73,9 +72,81 @@ export default function StokPage() {
     void load();
   }, [load]);
 
+  // ---------- Add Modal ----------
+  const [openAdd, setOpenAdd] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  // form state
+  const [fNama, setFNama] = useState("");
+  const [fSN, setFSN] = useState("");
+  const [fIMEI, setFIMEI] = useState("");
+  const [fStorage, setFStorage] = useState("");
+  const [fWarna, setFWarna] = useState("");
+  const [fGaransi, setFGaransi] = useState("");
+  const [fAsal, setFAsal] = useState("");
+  const [fModal, setFModal] = useState<number | "">("");
+  const [fTgl, setFTgl] = useState(() => new Date().toISOString().slice(0, 10)); // yyyy-mm-dd
+
+  const resetForm = () => {
+    setFNama("");
+    setFSN("");
+    setFIMEI("");
+    setFStorage("");
+    setFWarna("");
+    setFGaransi("");
+    setFAsal("");
+    setFModal("");
+    setFTgl(new Date().toISOString().slice(0, 10));
+  };
+
+  const submitAdd = async () => {
+    if (!fNama || !fModal || !fTgl) {
+      alert("Nama produk, harga modal, dan tanggal masuk wajib diisi.");
+      return;
+    }
+    setSaving(true);
+    try {
+      const res = await fetch("/api/stok", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          nama_produk: fNama,
+          serial_number: fSN || null,
+          imei: fIMEI || null,
+          storage: fStorage || null,
+          warna: fWarna || null,
+          garansi: fGaransi || null,
+          asal_produk: fAsal || null,
+          harga_modal: Number(fModal),
+          tanggal_masuk: fTgl,
+        }),
+      });
+      const j: { ok: boolean; error?: string } = await res.json();
+      if (!j.ok) {
+        alert(j.error || "Gagal menyimpan stok.");
+        return;
+      }
+      setOpenAdd(false);
+      resetForm();
+      await load();
+    } catch (e) {
+      alert(String(e));
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <div className="max-w-5xl mx-auto px-4 py-8 space-y-6">
-      <h1 className="text-xl font-semibold">Stok Unit</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-xl font-semibold">Stok Unit</h1>
+        <button
+          className="bg-black text-white rounded-md px-4 py-2"
+          onClick={() => setOpenAdd(true)}
+        >
+          + Tambah Stok
+        </button>
+      </div>
 
       {/* Filter bar */}
       <div className="grid grid-cols-1 sm:grid-cols-6 gap-3">
@@ -190,6 +261,43 @@ export default function StokPage() {
           </button>
         </div>
       </div>
+
+      {/* Modal Tambah */}
+      {openAdd && (
+        <div className="fixed inset-0 z-50 bg-black/30 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl w-full max-w-2xl p-5 space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold">Tambah Stok</h2>
+              <button onClick={() => setOpenAdd(false)} className="text-sm text-neutral-600">
+                ✕ Tutup
+              </button>
+            </div>
+
+            <div className="grid sm:grid-cols-2 gap-3">
+              <input className="border rounded-md px-3 py-2" placeholder="Nama produk *" value={fNama} onChange={(e) => setFNama(e.target.value)} />
+              <input className="border rounded-md px-3 py-2" placeholder="Serial number" value={fSN} onChange={(e) => setFSN(e.target.value)} />
+              <input className="border rounded-md px-3 py-2" placeholder="IMEI" value={fIMEI} onChange={(e) => setFIMEI(e.target.value)} />
+              <input className="border rounded-md px-3 py-2" placeholder="Storage" value={fStorage} onChange={(e) => setFStorage(e.target.value)} />
+              <input className="border rounded-md px-3 py-2" placeholder="Warna" value={fWarna} onChange={(e) => setFWarna(e.target.value)} />
+              <input className="border rounded-md px-3 py-2" placeholder="Garansi" value={fGaransi} onChange={(e) => setFGaransi(e.target.value)} />
+              <input className="border rounded-md px-3 py-2" placeholder="Asal produk" value={fAsal} onChange={(e) => setFAsal(e.target.value)} />
+              <input className="border rounded-md px-3 py-2" type="number" placeholder="Harga modal *" value={fModal} onChange={(e) => setFModal(e.target.value === "" ? "" : Number(e.target.value))} />
+              <input className="border rounded-md px-3 py-2" type="date" value={fTgl} onChange={(e) => setFTgl(e.target.value)} />
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2">
+              <button className="border rounded-md px-4 py-2" onClick={() => setOpenAdd(false)}>Batal</button>
+              <button
+                className="bg-black text-white rounded-md px-4 py-2 disabled:opacity-50"
+                onClick={() => void submitAdd()}
+                disabled={saving}
+              >
+                {saving ? "Menyimpan..." : "Simpan"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

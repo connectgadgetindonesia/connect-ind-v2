@@ -15,8 +15,6 @@ type SaleRow = {
   referal: string | null;
   dilayani_oleh: string;
   created_at: string;
-
-  // joined from stok_unit
   stok_id: number;
   nama_produk: string;
   serial_number: string | null;
@@ -34,7 +32,17 @@ type ApiRes = {
   error?: string;
 };
 
-// ---------- Helpers ----------
+type ReadyStockOption = {
+  id: number;
+  nama_produk: string;
+  serial_number: string | null;
+  imei: string | null;
+  storage: string | null;
+  warna: string | null;
+  garansi: string | null;
+  harga_modal: number;
+};
+
 const rupiah = (n: number) =>
   new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 }).format(
     Number.isFinite(n) ? n : 0
@@ -72,8 +80,6 @@ export default function PenjualanPage() {
     } else {
       setRows([]);
       setTotal(0);
-      // optional: tampilkan toast dari json.error
-      // console.error(json.error);
     }
   }, [page, pageSize, q, from, to]);
 
@@ -81,9 +87,124 @@ export default function PenjualanPage() {
     void load();
   }, [load]);
 
+  // ---------- Add Modal ----------
+  const [openAdd, setOpenAdd] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  const [invoice, setInvoice] = useState("");
+  const [tgl, setTgl] = useState(() => new Date().toISOString().slice(0, 10));
+  const [hargaJual, setHargaJual] = useState<number | "">("");
+  const [referal, setReferal] = useState("");
+  const [pembeli, setPembeli] = useState("");
+  const [noWa, setNoWa] = useState("");
+  const [alamat, setAlamat] = useState("");
+
+  const [ready, setReady] = useState<ReadyStockOption[]>([]);
+  const [selectedId, setSelectedId] = useState<number | "">("");
+
+  const loadReady = useCallback(async () => {
+    const res = await fetch("/api/stok?status=READY&page=1&pageSize=100", { cache: "no-store" });
+    const j: { ok: boolean; data: StockMinimal[] } | any = await res.json();
+
+    type StockMinimal = {
+      id: number;
+      nama_produk: string;
+      serial_number: string | null;
+      imei: string | null;
+      storage: string | null;
+      warna: string | null;
+      garansi: string | null;
+      harga_modal: number;
+    };
+
+    if (j.ok) {
+      const map: ReadyStockOption[] = j.data.map((r: StockMinimal) => ({
+        id: r.id,
+        nama_produk: r.nama_produk,
+        serial_number: r.serial_number,
+        imei: r.imei,
+        storage: r.storage,
+        warna: r.warna,
+        garansi: r.garansi,
+        harga_modal: r.harga_modal,
+      }));
+      setReady(map);
+    } else {
+      setReady([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (openAdd) void loadReady();
+  }, [openAdd, loadReady]);
+
+  const selected = useMemo(
+    () => ready.find((r) => r.id === (typeof selectedId === "number" ? selectedId : -1)),
+    [ready, selectedId]
+  );
+
+  const submitAdd = async () => {
+    if (!invoice || !tgl || !hargaJual || !selected) {
+      alert("Invoice, tanggal, unit READY, dan harga jual wajib diisi.");
+      return;
+    }
+    setSaving(true);
+    try {
+      // API penjualan minta field lengkap—kita isi dari stok terpilih.
+      const body = {
+        invoice_id: invoice,
+        jenis: "UNIT" as const,
+        sn_sku: selected.serial_number || selected.imei || String(selected.id), // pengenal
+        tanggal: tgl,
+        nama_pembeli: pembeli || null,
+        alamat: alamat || null,
+        no_wa: noWa || null,
+        nama_produk: selected.nama_produk,
+        warna: selected.warna,
+        storage: selected.storage,
+        garansi: selected.garansi,
+        harga_jual: Number(hargaJual),
+        referal: referal || null,
+      };
+
+      const res = await fetch("/api/penjualan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const j: { ok: boolean; error?: string } = await res.json();
+      if (!j.ok) {
+        alert(j.error || "Gagal menyimpan penjualan.");
+        return;
+      }
+      setOpenAdd(false);
+      // reset form
+      setInvoice("");
+      setHargaJual("");
+      setReferal("");
+      setPembeli("");
+      setNoWa("");
+      setAlamat("");
+      setSelectedId("");
+      await load();
+    } catch (e) {
+      alert(String(e));
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <div className="max-w-5xl mx-auto px-4 py-8 space-y-6">
-      <h1 className="text-xl font-semibold">Penjualan</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-xl font-semibold">Penjualan</h1>
+        <button
+          className="bg-black text-white rounded-md px-4 py-2"
+          onClick={() => setOpenAdd(true)}
+        >
+          + Tambah Penjualan
+        </button>
+      </div>
 
       {/* Filter bar */}
       <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
@@ -148,9 +269,7 @@ export default function PenjualanPage() {
                     {[r.storage, r.warna].filter(Boolean).join(" · ")}
                   </div>
                 </td>
-                <td>
-                  {[r.serial_number, r.imei].filter(Boolean).join(" / ") || "-"}
-                </td>
+                <td>{[r.serial_number, r.imei].filter(Boolean).join(" / ") || "-"}</td>
                 <td>{r.nama_pembeli || "-"}</td>
                 <td className="text-right">{rupiah(r.harga_jual)}</td>
                 <td className="text-right">{rupiah(r.harga_modal)}</td>
@@ -193,6 +312,56 @@ export default function PenjualanPage() {
           </button>
         </div>
       </div>
+
+      {/* Modal Tambah */}
+      {openAdd && (
+        <div className="fixed inset-0 z-50 bg-black/30 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl w-full max-w-2xl p-5 space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold">Tambah Penjualan (UNIT)</h2>
+              <button onClick={() => setOpenAdd(false)} className="text-sm text-neutral-600">
+                ✕ Tutup
+              </button>
+            </div>
+
+            <div className="grid sm:grid-cols-2 gap-3">
+              <input className="border rounded-md px-3 py-2" placeholder="No. Invoice *" value={invoice} onChange={(e) => setInvoice(e.target.value)} />
+              <input className="border rounded-md px-3 py-2" type="date" value={tgl} onChange={(e) => setTgl(e.target.value)} />
+
+              <select
+                className="border rounded-md px-3 py-2 sm:col-span-2"
+                value={selectedId}
+                onChange={(e) => setSelectedId(e.target.value === "" ? "" : Number(e.target.value))}
+              >
+                <option value="">Pilih Unit READY (SN / IMEI)</option>
+                {ready.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.nama_produk} — {[r.serial_number, r.imei].filter(Boolean).join(" / ") || r.id} •{" "}
+                    {[r.storage, r.warna].filter(Boolean).join(" · ")} • Modal {rupiah(r.harga_modal)}
+                  </option>
+                ))}
+              </select>
+
+              <input className="border rounded-md px-3 py-2" type="number" placeholder="Harga jual *" value={hargaJual} onChange={(e) => setHargaJual(e.target.value === "" ? "" : Number(e.target.value))} />
+              <input className="border rounded-md px-3 py-2" placeholder="Referal (opsional)" value={referal} onChange={(e) => setReferal(e.target.value)} />
+              <input className="border rounded-md px-3 py-2" placeholder="Nama pembeli" value={pembeli} onChange={(e) => setPembeli(e.target.value)} />
+              <input className="border rounded-md px-3 py-2" placeholder="No. WA" value={noWa} onChange={(e) => setNoWa(e.target.value)} />
+              <input className="border rounded-md px-3 py-2 sm:col-span-2" placeholder="Alamat" value={alamat} onChange={(e) => setAlamat(e.target.value)} />
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2">
+              <button className="border rounded-md px-4 py-2" onClick={() => setOpenAdd(false)}>Batal</button>
+              <button
+                className="bg-black text-white rounded-md px-4 py-2 disabled:opacity-50"
+                onClick={() => void submitAdd()}
+                disabled={saving}
+              >
+                {saving ? "Menyimpan..." : "Simpan"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
