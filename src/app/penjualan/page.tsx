@@ -1,5 +1,5 @@
 import { Suspense } from "react";
-import PenjualanClient from "./penjualan.client";
+import PenjualanClient from "./Client";
 
 export default function Page() {
   return (
