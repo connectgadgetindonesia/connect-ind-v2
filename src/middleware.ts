@@ -8,9 +8,14 @@ const isPublicRoute = createRouteMatcher([
   "/healthz",
 ]);
 
-export default clerkMiddleware((auth, req) => {
+export default clerkMiddleware(async (auth, req) => {
+  // auth adalah fungsi async → harus di-await dulu
+  const a = await auth();
+
   // kalau bukan public, wajib login
-  if (!isPublicRoute(req)) auth().protect();
+  if (!isPublicRoute(req)) {
+    a.protect();
+  }
 });
 
 // jalankan middleware untuk semua route kecuali asset statis & _next
