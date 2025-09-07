@@ -95,10 +95,10 @@ export async function POST(req: Request) {
   }
 }
 
-/** PATCH /api/stok  (partial update; id wajib) */
+// --- PATCH /api/stok (partial update; id wajib) ---
 export async function PATCH(req: Request) {
   try {
-    const b = (await req.json()) as {
+    const b = await req.json() as {
       id?: number;
       nama_produk?: string;
       sn?: string | null;
@@ -107,32 +107,55 @@ export async function PATCH(req: Request) {
       warna?: string | null;
       garansi?: string | null;
       asal?: string | null;
-      harga_modal?: number | null;
+      harga_modal?: number | string | null;
       tanggal_masuk?: string | null;
       status?: "READY" | "SOLD";
     };
 
-    if (!b.id) return NextResponse.json({ ok: false, error: "id wajib" }, { status: 400 });
+    const id: number = Number(b.id ?? 0);
+    if (!id) {
+      return NextResponse.json({ ok: false, error: "id wajib" }, { status: 400 });
+    }
+
+    // Normalisasi: jangan kirim undefined ke sql`
+    const nama_produk: string | null   = b.nama_produk ?? null;
+    const sn: string | null            = b.sn ?? null;
+    const imei: string | null          = b.imei ?? null;
+    const storage: string | null       = b.storage ?? null;
+    const warna: string | null         = b.warna ?? null;
+    const garansi: string | null       = b.garansi ?? null;
+    const asal: string | null          = b.asal ?? null;
+    const harga_modal: number | null   =
+      typeof b.harga_modal === "number"
+        ? b.harga_modal
+        : b.harga_modal != null
+        ? Number(b.harga_modal)
+        : null;
+    const tanggal_masuk: string | null = b.tanggal_masuk ?? null;
+    const status: string | null        = b.status ?? null; // "READY" | "SOLD" | null
 
     const result = await sql`
       update stok set
-        nama_produk   = coalesce(${b.nama_produk}, nama_produk),
-        sn            = coalesce(${b.sn}, sn),
-        imei          = coalesce(${b.imei}, imei),
-        storage       = coalesce(${b.storage}, storage),
-        warna         = coalesce(${b.warna}, warna),
-        garansi       = coalesce(${b.garansi}, garansi),
-        asal          = coalesce(${b.asal}, asal),
-        harga_modal   = coalesce(${b.harga_modal}, harga_modal),
-        tanggal_masuk = coalesce(${b.tanggal_masuk}, tanggal_masuk),
-        status        = coalesce(${b.status}, status)
-      where id = ${b.id}
+        nama_produk   = coalesce(${nama_produk}, nama_produk),
+        sn            = coalesce(${sn}, sn),
+        imei          = coalesce(${imei}, imei),
+        storage       = coalesce(${storage}, storage),
+        warna         = coalesce(${warna}, warna),
+        garansi       = coalesce(${garansi}, garansi),
+        asal          = coalesce(${asal}, asal),
+        harga_modal   = coalesce(${harga_modal}, harga_modal),
+        tanggal_masuk = coalesce(${tanggal_masuk}, tanggal_masuk),
+        status        = coalesce(${status}, status)
+      where id = ${id}
       returning id
     `;
-    const updated = result as unknown as Array<{ id: number }>;
-    if (!updated.length) return NextResponse.json({ ok: false, error: "id tidak ditemukan" }, { status: 404 });
 
-    return NextResponse.json({ ok: true, id: updated[0].id });
+    const rows = result as unknown as Array<{ id: number }>;
+    if (!rows.length) {
+      return NextResponse.json({ ok: false, error: "id tidak ditemukan" }, { status: 404 });
+    }
+
+    return NextResponse.json({ ok: true, id: rows[0].id });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     return NextResponse.json({ ok: false, error: msg }, { status: 500 });
