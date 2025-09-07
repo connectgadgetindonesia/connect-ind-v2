@@ -1,28 +1,22 @@
+// src/app/api/stok/route.ts
 import { NextResponse } from "next/server";
 import { sql } from "@/lib/db";
 
-/** List stok dengan filter sederhana */
+/** GET /api/stok?status=READY&q=iphone&page=1&pageSize=20&from=YYYY-MM-DD&to=YYYY-MM-DD */
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
-  const q = (searchParams.get("q") || "").toLowerCase().trim();
-  const status = searchParams.get("status") as "READY" | "SOLD" | null;
+  const status = (searchParams.get("status") || "").toUpperCase();
+  const q = (searchParams.get("q") || "").trim().toLowerCase();
   const from = searchParams.get("from") || "";
   const to = searchParams.get("to") || "";
 
-  const rows = await sql<{
-    id: number;
-    nama_produk: string;
-    sn: string | null;
-    imei: string | null;
-    storage: string | null;
-    warna: string | null;
-    garansi: string | null;
-    asal: string | null;
-    harga_modal: number | null;
-    tanggal_masuk: string | null;
-    status: "READY" | "SOLD";
-  }[]>`
-    select id, nama_produk, sn, imei, storage, warna, garansi, asal, harga_modal, tanggal_masuk, status
+  const page = Math.max(1, Number(searchParams.get("page") || 1));
+  const pageSize = Math.min(100, Math.max(1, Number(searchParams.get("pageSize") || 20)));
+  const offset = (page - 1) * pageSize;
+
+  const rows = await sql`
+    select id, nama_produk, sn, imei, storage, warna, garansi, asal,
+           harga_modal, tanggal_masuk, status, created_at
     from stok
     where 1=1
       ${status ? sql`and status = ${status}` : sql``}
@@ -30,66 +24,78 @@ export async function GET(req: Request) {
         q
           ? sql`and (
               lower(nama_produk) like ${"%" + q + "%"} or
-              lower(sn) like ${"%" + q + "%"} or
-              lower(imei) like ${"%" + q + "%"} or
-              lower(storage) like ${"%" + q + "%"} or
-              lower(warna) like ${"%" + q + "%"}
+              lower(sn)          like ${"%" + q + "%"} or
+              lower(imei)        like ${"%" + q + "%"} or
+              lower(storage)     like ${"%" + q + "%"} or
+              lower(warna)       like ${"%" + q + "%"} or
+              lower(asal)        like ${"%" + q + "%"}
             )`
           : sql``
       }
       ${from ? sql`and tanggal_masuk >= ${from}` : sql``}
-      ${to ? sql`and tanggal_masuk <= ${to}` : sql``}
-    order by id desc
+      ${to   ? sql`and tanggal_masuk <= ${to}`   : sql``}
+    order by created_at desc
+    limit ${pageSize} offset ${offset}
   `;
-  return NextResponse.json({ ok: true, data: rows });
+
+  const countRes = await sql`
+    select count(*)::int as c
+    from stok
+    where 1=1
+      ${status ? sql`and status = ${status}` : sql``}
+      ${
+        q
+          ? sql`and (
+              lower(nama_produk) like ${"%" + q + "%"} or
+              lower(sn)          like ${"%" + q + "%"} or
+              lower(imei)        like ${"%" + q + "%"} or
+              lower(storage)     like ${"%" + q + "%"} or
+              lower(warna)       like ${"%" + q + "%"} or
+              lower(asal)        like ${"%" + q + "%"}
+            )`
+          : sql``
+      }
+      ${from ? sql`and tanggal_masuk >= ${from}` : sql``}
+      ${to   ? sql`and tanggal_masuk <= ${to}`   : sql``}
+  `;
+  const total = (countRes as unknown as Array<{ c: number }>)[0].c;
+
+  return NextResponse.json({ ok: true, data: rows, page, pageSize, total });
 }
 
-/** Tambah stok */
+/** POST /api/stok  (buat data baru) */
 export async function POST(req: Request) {
   try {
-    const b = (await req.json()) as {
-      nama_produk?: string;
-      sn?: string | null;
-      imei?: string | null;
-      storage?: string | null;
-      warna?: string | null;
-      garansi?: string | null;
-      asal?: string | null;
-      harga_modal?: number | null;
-      tanggal_masuk?: string | null;
-    };
+    const b = await req.json();
+    const nama_produk: string = b.nama_produk;
+    const sn: string | null = b.sn ?? null;
+    const imei: string | null = b.imei ?? null;
+    const storage: string | null = b.storage ?? null;
+    const warna: string | null = b.warna ?? null;
+    const garansi: string | null = b.garansi ?? null;
+    const asal: string | null = b.asal ?? null;
+    const harga_modal: number = Number(b.harga_modal ?? 0);
+    const tanggal_masuk: string | null = b.tanggal_masuk ?? null;
 
-    if (!b.nama_produk) {
-      return NextResponse.json({ ok: false, error: "nama_produk wajib" }, { status: 400 });
-    }
+    if (!nama_produk) return NextResponse.json({ ok: false, error: "nama_produk wajib" }, { status: 400 });
 
-    const res = await sql<{ id: number }[]>`
-      insert into stok (
-        nama_produk, sn, imei, storage, warna, garansi, asal, harga_modal, tanggal_masuk, status
-      )
-      values (
-        ${b.nama_produk}, ${b.sn ?? null}, ${b.imei ?? null}, ${b.storage ?? null},
-        ${b.warna ?? null}, ${b.garansi ?? null}, ${b.asal ?? null},
-        ${b.harga_modal ?? null}, ${b.tanggal_masuk ?? null}, 'READY'
-      )
+    const res = await sql`
+      insert into stok
+        (nama_produk, sn, imei, storage, warna, garansi, asal, harga_modal, tanggal_masuk, status)
+      values
+        (${nama_produk}, ${sn}, ${imei}, ${storage}, ${warna}, ${garansi}, ${asal}, ${harga_modal}, ${tanggal_masuk}, 'READY')
       returning id
     `;
 
-    return NextResponse.json({ ok: true, id: res[0].id }, { status: 201 });
+    const id = (res as unknown as Array<{ id: number }>)[0].id;
+    return NextResponse.json({ ok: true, id }, { status: 201 });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     return NextResponse.json({ ok: false, error: msg }, { status: 500 });
   }
 }
 
-/** Edit stok (partial update) – id wajib */
-// src/app/api/stok/route.ts
-import { NextResponse } from "next/server";
-import { sql } from "@/lib/db";
-
-/* ... GET dan POST tetap ... */
-
-/** Edit stok (partial update) – id wajib */
+/** PATCH /api/stok  (partial update; id wajib) */
 export async function PATCH(req: Request) {
   try {
     const b = (await req.json()) as {
@@ -106,11 +112,8 @@ export async function PATCH(req: Request) {
       status?: "READY" | "SOLD";
     };
 
-    if (!b.id) {
-      return NextResponse.json({ ok: false, error: "id wajib" }, { status: 400 });
-    }
+    if (!b.id) return NextResponse.json({ ok: false, error: "id wajib" }, { status: 400 });
 
-    // NOTE: jangan pakai generic di sql`...`, cast setelah await agar aman untuk TS
     const result = await sql`
       update stok set
         nama_produk   = coalesce(${b.nama_produk}, nama_produk),
@@ -126,12 +129,9 @@ export async function PATCH(req: Request) {
       where id = ${b.id}
       returning id
     `;
-
     const updated = result as unknown as Array<{ id: number }>;
+    if (!updated.length) return NextResponse.json({ ok: false, error: "id tidak ditemukan" }, { status: 404 });
 
-    if (!updated.length) {
-      return NextResponse.json({ ok: false, error: "id tidak ditemukan" }, { status: 404 });
-    }
     return NextResponse.json({ ok: true, id: updated[0].id });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
@@ -139,15 +139,17 @@ export async function PATCH(req: Request) {
   }
 }
 
-/** Hapus stok – id wajib */
+/** DELETE /api/stok  body: { id } */
 export async function DELETE(req: Request) {
   try {
-    const b = (await req.json()) as { id?: number };
-    if (!b.id) {
-      return NextResponse.json({ ok: false, error: "id wajib" }, { status: 400 });
-    }
-    await sql`delete from stok where id = ${b.id}`;
-    return NextResponse.json({ ok: true });
+    const { id } = await req.json();
+    if (!id) return NextResponse.json({ ok: false, error: "id wajib" }, { status: 400 });
+
+    const r = await sql`delete from stok where id = ${id} returning id`;
+    const rows = r as unknown as Array<{ id: number }>;
+    if (!rows.length) return NextResponse.json({ ok: false, error: "id tidak ditemukan" }, { status: 404 });
+
+    return NextResponse.json({ ok: true, id: rows[0].id });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     return NextResponse.json({ ok: false, error: msg }, { status: 500 });
