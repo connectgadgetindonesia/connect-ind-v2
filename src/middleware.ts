@@ -1,20 +1,23 @@
 // src/middleware.ts
-import { clerkMiddleware } from "@clerk/nextjs/server";
+import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 
-/**
- * Konfigurasi paling aman:
- * - Semua route dilindungi kecuali asset statis (_next, file dengan ekstensi) dan halaman auth.
- * - /healthz dibiarkan public biar liveness check OK.
- */
-export default clerkMiddleware({
-  publicRoutes: ["/sign-in(.*)", "/sign-up(.*)", "/healthz"],
+// daftar route PUBLIC (tanpa login)
+const isPublicRoute = createRouteMatcher([
+  "/sign-in(.*)",
+  "/sign-up(.*)",
+  "/healthz",
+]);
+
+export default clerkMiddleware((auth, req) => {
+  // kalau bukan public, wajib login
+  if (!isPublicRoute(req)) auth().protect();
 });
 
+// jalankan middleware untuk semua route kecuali asset statis & _next
 export const config = {
-  // Jalankan middleware untuk semua route kecuali asset statis
   matcher: [
-    "/((?!.*\\..*|_next).*)", // semua selain file statis & _next
-    "/",                      // root
-    "/(api|trpc)(.*)",        // API routes
+    "/((?!.*\\..*|_next).*)",
+    "/",
+    "/(api|trpc)(.*)",
   ],
 };
