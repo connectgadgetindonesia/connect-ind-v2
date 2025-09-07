@@ -83,6 +83,13 @@ export async function POST(req: Request) {
 }
 
 /** Edit stok (partial update) – id wajib */
+// src/app/api/stok/route.ts
+import { NextResponse } from "next/server";
+import { sql } from "@/lib/db";
+
+/* ... GET dan POST tetap ... */
+
+/** Edit stok (partial update) – id wajib */
 export async function PATCH(req: Request) {
   try {
     const b = (await req.json()) as {
@@ -103,7 +110,8 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ ok: false, error: "id wajib" }, { status: 400 });
     }
 
-    const updated = await sql<{ id: number }[]>`
+    // NOTE: jangan pakai generic di sql`...`, cast setelah await agar aman untuk TS
+    const result = await sql`
       update stok set
         nama_produk   = coalesce(${b.nama_produk}, nama_produk),
         sn            = coalesce(${b.sn}, sn),
@@ -118,6 +126,8 @@ export async function PATCH(req: Request) {
       where id = ${b.id}
       returning id
     `;
+
+    const updated = result as unknown as Array<{ id: number }>;
 
     if (!updated.length) {
       return NextResponse.json({ ok: false, error: "id tidak ditemukan" }, { status: 404 });
