@@ -1,330 +1,234 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useCallback, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 
 type Row = {
   id: number;
+  invoice_id: string;
   tanggal: string;
-  nama_produk: string;
+  jenis: "UNIT" | "AKSESORIS";
   sn_sku: string;
-  harga_jual: number;
+  nama_produk: string;
+  warna: string | null;
+  storage: string | null;
   harga_modal: number | null;
+  harga_jual: number;
   laba: number | null;
   dilayani_oleh: string | null;
   referal: string | null;
+  nama_pembeli: string | null;
 };
 
-export default function Client() {
-  const router = useRouter();
-  const searchParams = useSearchParams();
+export default function PenjualanClient() {
+  const sp = useSearchParams();
 
-  // ---- table & filter ----
   const [rows, setRows] = useState<Row[]>([]);
-  const [loading, setLoading] = useState<boolean>(true);
-  const [q, setQ] = useState("");
-  const [from, setFrom] = useState("");
-  const [to, setTo] = useState("");
+  const [q, setQ] = useState(sp.get("q") || "");
+  const [from, setFrom] = useState(sp.get("from") || "");
+  const [to, setTo] = useState(sp.get("to") || "");
+  const [loading, setLoading] = useState(false);
 
-  const query = useMemo(() => {
-    const sp = new URLSearchParams();
-    if (q) sp.set("q", q);
-    if (from) sp.set("from", from);
-    if (to) sp.set("to", to);
-    return sp.toString();
+  const reload = useCallback(async () => {
+    setLoading(true);
+    const u = new URL("/api/penjualan", window.location.origin);
+    if (q) u.searchParams.set("q", q);
+    if (from) u.searchParams.set("from", from);
+    if (to) u.searchParams.set("to", to);
+    const r = await fetch(u.toString(), { cache: "no-store" });
+    const j = await r.json();
+    setRows(j.data || []);
+    setLoading(false);
   }, [q, from, to]);
 
-  useEffect(() => {
-    let abort = false;
-    (async () => {
-      setLoading(true);
-      const res = await fetch(`/api/penjualan${query ? `?${query}` : ""}`);
-      const data = await res.json();
-      if (!abort) {
-        setRows(data?.data ?? []);
-        setLoading(false);
-      }
-    })();
-    return () => {
-      abort = true;
-    };
-  }, [query]);
+  useEffect(() => { reload(); }, [reload]);
 
-  // ---- modal open/close via ?aksi=tambah ----
-  const aksi = searchParams.get("aksi");
-  const open = aksi === "tambah";
+  // modal tambah
+  const [openAdd, setOpenAdd] = useState(false);
+  const [add, setAdd] = useState({
+    invoice_id: "",
+    jenis: "UNIT" as "UNIT"|"AKSESORIS",
+    sn_sku: "",
+    tanggal: "",
+    nama_pembeli: "",
+    nama_produk: "",
+    warna: "",
+    storage: "",
+    garansi: "",
+    harga_jual: "",
+    referal: "",
+  });
 
-  const openModal = () => {
-    const sp = new URLSearchParams(searchParams.toString());
-    sp.set("aksi", "tambah");
-    router.push(`/penjualan?${sp.toString()}`, { scroll: false });
-  };
-
-  const closeModal = () => {
-    const sp = new URLSearchParams(searchParams.toString());
-    sp.delete("aksi");
-    const qs = sp.toString();
-    router.push(qs ? `/penjualan?${qs}` : "/penjualan", { scroll: false });
-  };
-
-  const reload = () => setQ((s) => s); // trigger re-fetch
+  // modal edit
+  const [openEdit, setOpenEdit] = useState(false);
+  const [edit, setEdit] = useState({
+    id: 0,
+    tanggal: "",
+    nama_pembeli: "",
+    harga_jual: "",
+    referal: "",
+  });
 
   return (
-    <div className="mx-auto max-w-6xl px-4 py-6">
-      <div className="mb-4 flex items-center justify-between">
+    <div className="mx-auto max-w-6xl px-4 py-8">
+      <div className="mb-6 flex items-center justify-between">
         <h1 className="text-xl font-semibold">Penjualan</h1>
-        <button
-          onClick={openModal}
-          className="rounded-md bg-black px-4 py-2 text-white hover:opacity-90"
-        >
+        <button className="rounded bg-black px-3 py-2 text-sm text-white" onClick={()=>setOpenAdd(true)}>
           Tambah Penjualan
         </button>
       </div>
 
-      {/* Filter */}
-      <div className="mb-3 flex flex-wrap gap-2">
-        <input
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder="Cari (produk/SN/IMEI/pelayan)"
-          className="h-9 w-72 rounded border px-3"
-        />
-        <input
-          type="date"
-          value={from}
-          onChange={(e) => setFrom(e.target.value)}
-          className="h-9 rounded border px-3"
-        />
-        <input
-          type="date"
-          value={to}
-          onChange={(e) => setTo(e.target.value)}
-          className="h-9 rounded border px-3"
-        />
-        <button
-          onClick={() => reload()}
-          className="h-9 rounded border px-3 hover:bg-gray-50"
-        >
-          Terapkan
-        </button>
+      {/* filter */}
+      <div className="mb-4 flex flex-wrap gap-2">
+        <input className="w-64 rounded border px-3 py-2" placeholder="Cari (produk/SN/IMEI/pelayan)"
+          value={q} onChange={e=>setQ(e.target.value)} />
+        <input type="date" className="rounded border px-3 py-2" value={from} onChange={e=>setFrom(e.target.value)} />
+        <input type="date" className="rounded border px-3 py-2" value={to} onChange={e=>setTo(e.target.value)} />
+        <button className="rounded border px-3 py-2" onClick={reload}>Terapkan</button>
       </div>
 
-      <div className="overflow-hidden rounded border">
-        <table className="w-full text-sm">
-          <thead className="bg-gray-50">
-            <tr>
-              <th className="p-2 text-left">Tanggal</th>
-              <th className="p-2 text-left">Produk</th>
-              <th className="p-2 text-left">SN / IMEI</th>
-              <th className="p-2 text-right">Harga Jual</th>
-              <th className="p-2 text-right">Modal</th>
-              <th className="p-2 text-right">Laba</th>
-              <th className="p-2 text-left">Dilayani</th>
-              <th className="p-2 text-left">Referal</th>
+      <div className="overflow-x-auto rounded border">
+        <table className="min-w-full text-sm">
+          <thead>
+            <tr className="bg-gray-50">
+              <th className="p-2 border">Tanggal</th>
+              <th className="p-2 border text-left">Produk</th>
+              <th className="p-2 border">SN / IMEI</th>
+              <th className="p-2 border">Pembeli</th>
+              <th className="p-2 border text-right">Harga Jual</th>
+              <th className="p-2 border text-right">Modal</th>
+              <th className="p-2 border text-right">Laba</th>
+              <th className="p-2 border">Dilayani</th>
+              <th className="p-2 border">Referal</th>
+              <th className="p-2 border text-center">Aksi</th>
             </tr>
           </thead>
           <tbody>
-            {loading ? (
-              <tr>
-                <td className="p-3 text-center" colSpan={8}>
-                  Memuat...
+            {loading && <tr><td className="p-3 text-center" colSpan={10}>Memuat...</td></tr>}
+            {!loading && rows.length === 0 && <tr><td className="p-3 text-center" colSpan={10}>Tidak ada data.</td></tr>}
+            {rows.map(r=>(
+              <tr key={r.id}>
+                <td className="p-2 border">{r.tanggal?.slice(0,10)}</td>
+                <td className="p-2 border">{r.nama_produk}</td>
+                <td className="p-2 border">{r.sn_sku}</td>
+                <td className="p-2 border">{r.nama_pembeli || "-"}</td>
+                <td className="p-2 border text-right">{r.harga_jual.toLocaleString("id-ID")}</td>
+                <td className="p-2 border text-right">{(r.harga_modal ?? 0).toLocaleString("id-ID")}</td>
+                <td className="p-2 border text-right">{(r.laba ?? 0).toLocaleString("id-ID")}</td>
+                <td className="p-2 border">{r.dilayani_oleh || "-"}</td>
+                <td className="p-2 border">{r.referal || "-"}</td>
+                <td className="p-2 border text-center">
+                  <button
+                    className="mr-2 rounded border px-2 py-1 text-xs"
+                    onClick={()=>{
+                      setEdit({
+                        id: r.id,
+                        tanggal: r.tanggal.slice(0,10),
+                        nama_pembeli: r.nama_pembeli || "",
+                        harga_jual: String(r.harga_jual),
+                        referal: r.referal || "",
+                      });
+                      setOpenEdit(true);
+                    }}
+                  >Edit</button>
+                  <button
+                    className="rounded border px-2 py-1 text-xs text-red-600"
+                    onClick={async ()=>{
+                      if (!confirm("Hapus penjualan ini?")) return;
+                      const res = await fetch(`/api/penjualan?id=${r.id}`, { method: "DELETE" });
+                      const j = await res.json();
+                      if (!j.ok) { alert(j.error || "Gagal hapus"); return; }
+                      reload();
+                    }}
+                  >Hapus</button>
                 </td>
               </tr>
-            ) : rows.length === 0 ? (
-              <tr>
-                <td className="p-3 text-center" colSpan={8}>
-                  Tidak ada data.
-                </td>
-              </tr>
-            ) : (
-              rows.map((r) => (
-                <tr key={r.id} className="border-t">
-                  <td className="p-2">{new Date(r.tanggal).toLocaleDateString()}</td>
-                  <td className="p-2">{r.nama_produk}</td>
-                  <td className="p-2">{r.sn_sku}</td>
-                  <td className="p-2 text-right">{formatIDR(r.harga_jual)}</td>
-                  <td className="p-2 text-right">
-                    {r.harga_modal == null ? "-" : formatIDR(r.harga_modal)}
-                  </td>
-                  <td className="p-2 text-right">
-                    {r.laba == null ? "-" : formatIDR(r.laba)}
-                  </td>
-                  <td className="p-2">{r.dilayani_oleh ?? "-"}</td>
-                  <td className="p-2">{r.referal ?? "-"}</td>
-                </tr>
-              ))
-            )}
+            ))}
           </tbody>
         </table>
       </div>
 
-      {open && <TambahPenjualanModal onClose={closeModal} onSaved={reload} />}
+      {/* MODAL TAMBAH */}
+      {openAdd && (
+        <Modal title="Tambah Penjualan" onClose={()=>setOpenAdd(false)}>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <Input value={add.invoice_id} placeholder="Invoice ID *" onChange={v=>setAdd({...add, invoice_id:v})}/>
+            <select className="rounded border px-3 py-2" value={add.jenis} onChange={e=>setAdd({...add, jenis: e.target.value as "UNIT"|"AKSESORIS"})}>
+              <option value="UNIT">UNIT</option>
+              <option value="AKSESORIS">AKSESORIS</option>
+            </select>
+            <Input value={add.sn_sku} placeholder="SN (UNIT) / SKU (AKSESORIS) *" onChange={v=>setAdd({...add, sn_sku:v})}/>
+            <Input value={add.tanggal} type="date" onChange={v=>setAdd({...add, tanggal:v})}/>
+            <Input value={add.nama_produk} placeholder="Nama produk *" onChange={v=>setAdd({...add, nama_produk:v})}/>
+            <Input value={add.harga_jual} placeholder="Harga jual *" onChange={v=>setAdd({...add, harga_jual:v.replace(/[^\d]/g,"")})}/>
+            <Input value={add.nama_pembeli} placeholder="Nama pembeli" onChange={v=>setAdd({...add, nama_pembeli:v})}/>
+            <Input value={add.referal} placeholder="Referal" onChange={v=>setAdd({...add, referal:v})}/>
+          </div>
+          <div className="mt-4 flex justify-end gap-2">
+            <button className="rounded border px-4 py-2" onClick={()=>setOpenAdd(false)}>Batal</button>
+            <button
+              className="rounded bg-black px-4 py-2 text-white"
+              onClick={async ()=>{
+                const r = await fetch("/api/penjualan", { method:"POST", headers:{ "content-type":"application/json" }, body: JSON.stringify({
+                  ...add, harga_jual: Number(add.harga_jual||0) || 0,
+                })});
+                const j = await r.json();
+                if (!j.ok) { alert(j.error || "Gagal simpan"); return; }
+                setOpenAdd(false);
+                setAdd({ invoice_id:"", jenis:"UNIT", sn_sku:"", tanggal:"", nama_pembeli:"", nama_produk:"", warna:"", storage:"", garansi:"", harga_jual:"", referal:"" });
+                reload();
+              }}
+            >Simpan</button>
+          </div>
+        </Modal>
+      )}
+
+      {/* MODAL EDIT */}
+      {openEdit && (
+        <Modal title="Edit Penjualan" onClose={()=>setOpenEdit(false)}>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <Input value={edit.tanggal} type="date" onChange={v=>setEdit({...edit, tanggal:v})}/>
+            <Input value={edit.nama_pembeli} placeholder="Nama pembeli" onChange={v=>setEdit({...edit, nama_pembeli:v})}/>
+            <Input value={edit.harga_jual} placeholder="Harga jual" onChange={v=>setEdit({...edit, harga_jual:v.replace(/[^\d]/g,"")})}/>
+            <Input value={edit.referal} placeholder="Referal" onChange={v=>setEdit({...edit, referal:v})}/>
+          </div>
+          <div className="mt-4 flex justify-end gap-2">
+            <button className="rounded border px-4 py-2" onClick={()=>setOpenEdit(false)}>Batal</button>
+            <button
+              className="rounded bg-black px-4 py-2 text-white"
+              onClick={async ()=>{
+                const r = await fetch("/api/penjualan", { method:"PATCH", headers:{ "content-type":"application/json" }, body: JSON.stringify({
+                  ...edit, harga_jual: Number(edit.harga_jual||0)
+                })});
+                const j = await r.json();
+                if (!j.ok) { alert(j.error || "Gagal simpan"); return; }
+                setOpenEdit(false); reload();
+              }}
+            >Simpan</button>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }
 
-function formatIDR(n: number) {
-  try {
-    return new Intl.NumberFormat("id-ID").format(n);
-  } catch {
-    return String(n);
-  }
-}
-
-function todayISO(): string {
-  const d = new Date();
-  const yyyy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  return `${yyyy}-${mm}-${dd}`;
-}
-
-function TambahPenjualanModal({
-  onClose,
-  onSaved,
-}: {
-  onClose: () => void;
-  onSaved: () => void;
-}) {
-  const [jenis, setJenis] = useState<"UNIT" | "AKSESORIS">("UNIT");
-  const [invoice, setInvoice] = useState<string>(
-    `INV-${Date.now().toString().slice(-8)}`
-  );
-  const [tanggal, setTanggal] = useState<string>(todayISO());
-  const [snSku, setSnSku] = useState<string>("");
-  const [namaProduk, setNamaProduk] = useState<string>("");
-  const [warna, setWarna] = useState<string>("");
-  const [storage, setStorage] = useState<string>("");
-  const [garansi, setGaransi] = useState<string>("");
-  const [pembeli, setPembeli] = useState<string>("");
-  const [alamat, setAlamat] = useState<string>("");
-  const [noWa, setNoWa] = useState<string>("");
-  const [hargaJual, setHargaJual] = useState<number>(0);
-  const [referal, setReferal] = useState<string>("");
-
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string>("");
-
-  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    setSubmitting(true);
-    setError("");
-
-    const payload = {
-      invoice_id: invoice,
-      jenis,
-      sn_sku: snSku.trim(),
-      tanggal,
-      nama_pembeli: pembeli || null,
-      alamat: alamat || null,
-      no_wa: noWa || null,
-      nama_produk: namaProduk,
-      warna: warna || null,
-      storage: storage || null,
-      garansi: garansi || null,
-      harga_jual: Number(hargaJual),
-      referal: referal || null,
-    };
-
-    const res = await fetch("/api/penjualan", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-
-    const data: { ok?: boolean; error?: string } = await res.json();
-    setSubmitting(false);
-
-    if (!res.ok || !data.ok) {
-      setError(data.error ?? "Gagal menyimpan penjualan.");
-      return;
-    }
-
-    onClose();
-    onSaved();
-  }
-
+/* kecil2 */
+function Modal(props: { title: string; onClose: () => void; children: React.ReactNode }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 p-4" role="dialog" aria-modal="true">
-      <div className="w-full max-w-2xl rounded-lg bg-white">
-        <div className="flex items-center justify-between border-b px-4 py-3">
-          <h2 className="font-medium">Tambah Penjualan</h2>
-          <button onClick={onClose} className="opacity-70 hover:opacity-100">✕</button>
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4">
+      <div className="w-full max-w-3xl rounded-lg bg-white p-4 shadow-lg">
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="text-base font-semibold">{props.title}</h2>
+          <button onClick={props.onClose} className="text-sm opacity-70">Tutup</button>
         </div>
-
-        <form onSubmit={handleSubmit} className="space-y-3 px-4 py-4">
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <div>
-              <label className="mb-1 block text-sm">Invoice *</label>
-              <input value={invoice} onChange={(e) => setInvoice(e.target.value)} className="w-full rounded border px-3 py-2" required />
-            </div>
-            <div>
-              <label className="mb-1 block text-sm">Tanggal *</label>
-              <input type="date" value={tanggal} onChange={(e) => setTanggal(e.target.value)} className="w-full rounded border px-3 py-2" required />
-            </div>
-            <div>
-              <label className="mb-1 block text-sm">Jenis *</label>
-              <select value={jenis} onChange={(e) => setJenis(e.target.value as "UNIT" | "AKSESORIS")} className="w-full rounded border px-3 py-2" required>
-                <option value="UNIT">UNIT</option>
-                <option value="AKSESORIS">AKSESORIS</option>
-              </select>
-            </div>
-            <div>
-              <label className="mb-1 block text-sm">SN / SKU *</label>
-              <input value={snSku} onChange={(e) => setSnSku(e.target.value)} className="w-full rounded border px-3 py-2" placeholder="Contoh: IMEI / SN / SKU" required />
-            </div>
-            <div>
-              <label className="mb-1 block text-sm">Nama produk *</label>
-              <input value={namaProduk} onChange={(e) => setNamaProduk(e.target.value)} className="w-full rounded border px-3 py-2" required />
-            </div>
-            <div>
-              <label className="mb-1 block text-sm">Harga jual *</label>
-              <input type="number" min={0} value={Number.isNaN(hargaJual) ? 0 : hargaJual} onChange={(e) => setHargaJual(Number(e.target.value))} className="w-full rounded border px-3 py-2" required />
-            </div>
-            <div>
-              <label className="mb-1 block text-sm">Warna</label>
-              <input value={warna} onChange={(e) => setWarna(e.target.value)} className="w-full rounded border px-3 py-2" />
-            </div>
-            <div>
-              <label className="mb-1 block text-sm">Storage</label>
-              <input value={storage} onChange={(e) => setStorage(e.target.value)} className="w-full rounded border px-3 py-2" />
-            </div>
-            <div>
-              <label className="mb-1 block text-sm">Garansi</label>
-              <input value={garansi} onChange={(e) => setGaransi(e.target.value)} className="w-full rounded border px-3 py-2" />
-            </div>
-            <div>
-              <label className="mb-1 block text-sm">Nama pembeli</label>
-              <input value={pembeli} onChange={(e) => setPembeli(e.target.value)} className="w-full rounded border px-3 py-2" />
-            </div>
-            <div>
-              <label className="mb-1 block text-sm">No. WA</label>
-              <input value={noWa} onChange={(e) => setNoWa(e.target.value)} className="w-full rounded border px-3 py-2" />
-            </div>
-            <div className="sm:col-span-2">
-              <label className="mb-1 block text-sm">Alamat</label>
-              <input value={alamat} onChange={(e) => setAlamat(e.target.value)} className="w-full rounded border px-3 py-2" />
-            </div>
-            <div className="sm:col-span-2">
-              <label className="mb-1 block text-sm">Referal</label>
-              <input value={referal} onChange={(e) => setReferal(e.target.value)} className="w-full rounded border px-3 py-2" placeholder="(opsional)" />
-            </div>
-          </div>
-
-          {error && (
-            <div className="rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">
-              {error}
-            </div>
-          )}
-
-          <div className="mt-2 flex items-center justify-end gap-2">
-            <button type="button" onClick={onClose} className="rounded border px-4 py-2 hover:bg-gray-50">Batal</button>
-            <button type="submit" disabled={submitting} className="rounded bg-black px-4 py-2 text-white hover:opacity-90 disabled:opacity-60">
-              {submitting ? "Menyimpan..." : "Simpan"}
-            </button>
-          </div>
-        </form>
+        {props.children}
       </div>
     </div>
   );
+}
+function Input(
+  { value, onChange, placeholder, type = "text" }:
+  { value: string; onChange: (v: string)=>void; placeholder?: string; type?: string }
+) {
+  return <input className="w-full rounded border px-3 py-2" type={type} value={value} placeholder={placeholder} onChange={e=>onChange(e.target.value)} />;
 }

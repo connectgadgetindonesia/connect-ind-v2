@@ -1,12 +1,10 @@
 import { Suspense } from "react";
-import Client from "./Client";
-
-export const dynamic = "force-dynamic"; // opt-out dari SSG
+import PenjualanClient from "./penjualan.client";
 
 export default function Page() {
   return (
-    <Suspense fallback={<div className="mx-auto max-w-6xl px-4 py-6">Memuat…</div>}>
-      <Client />
+    <Suspense fallback={<div className="p-6 text-sm">Memuat…</div>}>
+      <PenjualanClient />
     </Suspense>
   );
 }
