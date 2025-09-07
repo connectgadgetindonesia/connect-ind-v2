@@ -1,12 +1,12 @@
 import { Suspense } from "react";
 import Client from "./Client";
 
-// supaya route stok tidak diprerender & selalu dinamis
+// halaman stok dipaksa CSR agar aman pakai useSearchParams di client
 export const dynamic = "force-dynamic";
 
 export default function Page() {
   return (
-    <Suspense fallback={<div className="max-w-6xl mx-auto px-4 py-6">Memuat...</div>}>
+    <Suspense fallback={<div className="max-w-6xl px-4 py-6 mx-auto">Memuat...</div>}>
       <Client />
     </Suspense>
   );

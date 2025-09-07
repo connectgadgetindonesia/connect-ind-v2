@@ -1,193 +1,145 @@
 import { NextResponse } from "next/server";
 import { sql } from "@/lib/db";
 
-/** GET /api/stok?status=READY&q=iphone&from=YYYY-MM-DD&to=YYYY-MM-DD&page=1&pageSize=20 */
+/** List stok dengan filter sederhana */
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
-  const status = (searchParams.get("status") || "").toUpperCase();
-  const q = (searchParams.get("q") || "").trim().toLowerCase();
+  const q = (searchParams.get("q") || "").toLowerCase().trim();
+  const status = searchParams.get("status") as "READY" | "SOLD" | null;
   const from = searchParams.get("from") || "";
   const to = searchParams.get("to") || "";
-  const page = Math.max(1, Number(searchParams.get("page") || 1));
-  const pageSize = Math.min(100, Math.max(1, Number(searchParams.get("pageSize") || 20)));
-  const offset = (page - 1) * pageSize;
 
-  const rows = await sql`
-    select
-      id, nama_produk, sn, imei, storage, warna, garansi, asal_produk,
-      harga_modal, tanggal_masuk, status
+  const rows = await sql<{
+    id: number;
+    nama_produk: string;
+    sn: string | null;
+    imei: string | null;
+    storage: string | null;
+    warna: string | null;
+    garansi: string | null;
+    asal: string | null;
+    harga_modal: number | null;
+    tanggal_masuk: string | null;
+    status: "READY" | "SOLD";
+  }[]>`
+    select id, nama_produk, sn, imei, storage, warna, garansi, asal, harga_modal, tanggal_masuk, status
     from stok
     where 1=1
-      ${status && status !== "ALL" ? sql` and status = ${status}` : sql``}
+      ${status ? sql`and status = ${status}` : sql``}
       ${
         q
-          ? sql` and (
-              lower(nama_produk)  like ${"%" + q + "%"} or
-              lower(sn)           like ${"%" + q + "%"} or
-              lower(imei)         like ${"%" + q + "%"} or
-              lower(storage)      like ${"%" + q + "%"} or
-              lower(warna)        like ${"%" + q + "%"} or
-              lower(asal_produk)  like ${"%" + q + "%"}
+          ? sql`and (
+              lower(nama_produk) like ${"%" + q + "%"} or
+              lower(sn) like ${"%" + q + "%"} or
+              lower(imei) like ${"%" + q + "%"} or
+              lower(storage) like ${"%" + q + "%"} or
+              lower(warna) like ${"%" + q + "%"}
             )`
           : sql``
       }
-      ${from ? sql` and tanggal_masuk >= ${from}` : sql``}
-      ${to   ? sql` and tanggal_masuk <= ${to}`   : sql``}
-    order by tanggal_masuk desc, id desc
-    limit ${pageSize} offset ${offset}
+      ${from ? sql`and tanggal_masuk >= ${from}` : sql``}
+      ${to ? sql`and tanggal_masuk <= ${to}` : sql``}
+    order by id desc
   `;
-
-  const [{ c: total }] = await sql`
-    select count(*)::int as c
-    from stok
-    where 1=1
-      ${status && status !== "ALL" ? sql` and status = ${status}` : sql``}
-      ${
-        q
-          ? sql` and (
-              lower(nama_produk)  like ${"%" + q + "%"} or
-              lower(sn)           like ${"%" + q + "%"} or
-              lower(imei)         like ${"%" + q + "%"} or
-              lower(storage)      like ${"%" + q + "%"} or
-              lower(warna)        like ${"%" + q + "%"} or
-              lower(asal_produk)  like ${"%" + q + "%"}
-            )`
-          : sql``
-      }
-      ${from ? sql` and tanggal_masuk >= ${from}` : sql``}
-      ${to   ? sql` and tanggal_masuk <= ${to}`   : sql``}
-  `;
-
-  return NextResponse.json({ ok: true, data: rows, page, pageSize, total });
+  return NextResponse.json({ ok: true, data: rows });
 }
 
-/** POST: tambah stok unit */
+/** Tambah stok */
 export async function POST(req: Request) {
   try {
-    const b: unknown = await req.json();
-    const body = b as {
+    const b = (await req.json()) as {
       nama_produk?: string;
       sn?: string | null;
       imei?: string | null;
       storage?: string | null;
       warna?: string | null;
       garansi?: string | null;
-      asal_produk?: string | null;
-      harga_modal?: number;
-      tanggal_masuk?: string;
-      status?: "READY" | "SOLD";
+      asal?: string | null;
+      harga_modal?: number | null;
+      tanggal_masuk?: string | null;
     };
 
-    const {
-      nama_produk,
-      sn = null,
-      imei = null,
-      storage = null,
-      warna = null,
-      garansi = null,
-      asal_produk = null,
-      harga_modal,
-      tanggal_masuk,
-      status = "READY",
-    } = body;
-
-    if (!nama_produk || !harga_modal || !tanggal_masuk) {
-      return NextResponse.json(
-        { ok: false, error: "nama_produk, harga_modal, tanggal_masuk wajib" },
-        { status: 400 }
-      );
+    if (!b.nama_produk) {
+      return NextResponse.json({ ok: false, error: "nama_produk wajib" }, { status: 400 });
     }
 
-    const r = await sql`
+    const res = await sql<{ id: number }[]>`
       insert into stok (
-        nama_produk, sn, imei, storage, warna, garansi, asal_produk,
-        harga_modal, tanggal_masuk, status
+        nama_produk, sn, imei, storage, warna, garansi, asal, harga_modal, tanggal_masuk, status
       )
       values (
-        ${nama_produk}, ${sn}, ${imei}, ${storage}, ${warna}, ${garansi}, ${asal_produk},
-        ${harga_modal}, ${tanggal_masuk}, ${status}
+        ${b.nama_produk}, ${b.sn ?? null}, ${b.imei ?? null}, ${b.storage ?? null},
+        ${b.warna ?? null}, ${b.garansi ?? null}, ${b.asal ?? null},
+        ${b.harga_modal ?? null}, ${b.tanggal_masuk ?? null}, 'READY'
       )
       returning id
     `;
 
-    return NextResponse.json({ ok: true, id: r[0].id }, { status: 201 });
+    return NextResponse.json({ ok: true, id: res[0].id }, { status: 201 });
   } catch (e) {
-    const message = e instanceof Error ? e.message : String(e);
-    return NextResponse.json({ ok: false, error: message }, { status: 500 });
+    const msg = e instanceof Error ? e.message : String(e);
+    return NextResponse.json({ ok: false, error: msg }, { status: 500 });
   }
 }
 
-/** PUT: edit stok unit */
-export async function PUT(req: Request) {
+/** Edit stok (partial update) – id wajib */
+export async function PATCH(req: Request) {
   try {
-    const b: unknown = await req.json();
-    const body = b as {
-      id: number;
-      nama_produk?: string | null;
+    const b = (await req.json()) as {
+      id?: number;
+      nama_produk?: string;
       sn?: string | null;
       imei?: string | null;
       storage?: string | null;
       warna?: string | null;
       garansi?: string | null;
-      asal_produk?: string | null;
+      asal?: string | null;
       harga_modal?: number | null;
       tanggal_masuk?: string | null;
-      status?: "READY" | "SOLD" | null;
+      status?: "READY" | "SOLD";
     };
 
-    const {
-      id,
-      nama_produk = null,
-      sn = null,
-      imei = null,
-      storage = null,
-      warna = null,
-      garansi = null,
-      asal_produk = null,
-      harga_modal = null,
-      tanggal_masuk = null,
-      status = null,
-    } = body;
+    if (!b.id) {
+      return NextResponse.json({ ok: false, error: "id wajib" }, { status: 400 });
+    }
 
-    if (!id) return NextResponse.json({ ok: false, error: "id wajib" }, { status: 400 });
-
-    const r = await sql`
+    const updated = await sql<{ id: number }[]>`
       update stok set
-        nama_produk   = coalesce(${nama_produk}, nama_produk),
-        sn            = coalesce(${sn}, sn),
-        imei          = coalesce(${imei}, imei),
-        storage       = coalesce(${storage}, storage),
-        warna         = coalesce(${warna}, warna),
-        garansi       = coalesce(${garansi}, garansi),
-        asal_produk   = coalesce(${asal_produk}, asal_produk),
-        harga_modal   = coalesce(${harga_modal}, harga_modal),
-        tanggal_masuk = coalesce(${tanggal_masuk}, tanggal_masuk),
-        status        = coalesce(${status}, status)
-      where id = ${id}
+        nama_produk   = coalesce(${b.nama_produk}, nama_produk),
+        sn            = coalesce(${b.sn}, sn),
+        imei          = coalesce(${b.imei}, imei),
+        storage       = coalesce(${b.storage}, storage),
+        warna         = coalesce(${b.warna}, warna),
+        garansi       = coalesce(${b.garansi}, garansi),
+        asal          = coalesce(${b.asal}, asal),
+        harga_modal   = coalesce(${b.harga_modal}, harga_modal),
+        tanggal_masuk = coalesce(${b.tanggal_masuk}, tanggal_masuk),
+        status        = coalesce(${b.status}, status)
+      where id = ${b.id}
       returning id
     `;
 
-    if (!r.length) return NextResponse.json({ ok: false, error: "Data tidak ditemukan" }, { status: 404 });
-    return NextResponse.json({ ok: true, id: r[0].id });
+    if (!updated.length) {
+      return NextResponse.json({ ok: false, error: "id tidak ditemukan" }, { status: 404 });
+    }
+    return NextResponse.json({ ok: true, id: updated[0].id });
   } catch (e) {
-    const message = e instanceof Error ? e.message : String(e);
-    return NextResponse.json({ ok: false, error: message }, { status: 500 });
+    const msg = e instanceof Error ? e.message : String(e);
+    return NextResponse.json({ ok: false, error: msg }, { status: 500 });
   }
 }
 
-/** DELETE: hapus stok unit */
+/** Hapus stok – id wajib */
 export async function DELETE(req: Request) {
   try {
-    const { searchParams } = new URL(req.url);
-    const id = Number(searchParams.get("id") || 0);
-    if (!id) return NextResponse.json({ ok: false, error: "id wajib" }, { status: 400 });
-
-    const r = await sql`delete from stok where id = ${id} returning id`;
-    if (!r.length) return NextResponse.json({ ok: false, error: "Data tidak ditemukan" }, { status: 404 });
-
-    return NextResponse.json({ ok: true, id: r[0].id });
+    const b = (await req.json()) as { id?: number };
+    if (!b.id) {
+      return NextResponse.json({ ok: false, error: "id wajib" }, { status: 400 });
+    }
+    await sql`delete from stok where id = ${b.id}`;
+    return NextResponse.json({ ok: true });
   } catch (e) {
-    const message = e instanceof Error ? e.message : String(e);
-    return NextResponse.json({ ok: false, error: message }, { status: 500 });
+    const msg = e instanceof Error ? e.message : String(e);
+    return NextResponse.json({ ok: false, error: msg }, { status: 500 });
   }
 }

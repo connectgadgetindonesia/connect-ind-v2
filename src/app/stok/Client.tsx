@@ -1,177 +1,260 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useState, FormEvent } from "react";
+import React, { useEffect, useState } from "react";
 
-/* ===== Helpers ===== */
-function rupiah(n?: number | null) {
-  if (n == null) return "-";
-  return new Intl.NumberFormat("id-ID").format(n);
-}
-function isoToDmy(iso?: string | null) {
-  if (!iso) return "";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  const dd = String(d.getDate()).padStart(2, "0");
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const yy = d.getFullYear();
-  return `${dd}/${mm}/${yy}`;
-}
-function dmyToISO(dmy?: string) {
-  if (!dmy) return undefined;
-  const [dd, mm, yyyy] = dmy.split("/");
-  if (!dd || !mm || !yyyy) return undefined;
-  return `${yyyy}-${mm.padStart(2, "0")}-${dd.padStart(2, "0")}`;
-}
-async function fetchJSON<T>(input: RequestInfo, init?: RequestInit): Promise<T> {
-  const res = await fetch(input, init);
-  const json = (await res.json()) as T;
-  return json;
-}
+type Status = "READY" | "SOLD";
 
-/* ===== Types ===== */
-type Status = "ALL" | "READY" | "SOLD";
-
-type Row = {
+type StokRow = {
   id: number;
-  nama_produk: string | null;
+  nama_produk: string;
   sn: string | null;
   imei: string | null;
   storage: string | null;
   warna: string | null;
   garansi: string | null;
-  asal_produk: string | null;
+  asal: string | null;
   harga_modal: number | null;
   tanggal_masuk: string | null; // ISO
-  status: string | null;
+  status: Status;
 };
 
-type ListResp = {
-  ok: boolean;
-  data?: Row[];
-  page?: number;
-  pageSize?: number;
-  total?: number;
-  error?: string;
+type FormState = {
+  nama_produk: string;
+  sn: string;
+  imei: string;
+  storage: string;
+  warna: string;
+  garansi: string;
+  asal: string;
+  harga_modal: string; // as text; convert to number on submit
+  tanggal_masuk: string; // yyyy-mm-dd
 };
-type MutResp = { ok: boolean; id?: number; error?: string };
 
-/* ===== Page Client ===== */
 export default function Client() {
-  const [status, setStatus] = useState<Status>("ALL");
-  const [q, setQ] = useState("");
-  const [from, setFrom] = useState(""); // dd/mm/yyyy
-  const [to, setTo] = useState(""); // dd/mm/yyyy
-  const [page, setPage] = useState(1);
+  const [rows, setRows] = useState<StokRow[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
 
-  const [rows, setRows] = useState<Row[]>([]);
-  const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(true);
+  // filters (sederhana)
+  const [q, setQ] = useState<string>("");
+  const [status, setStatus] = useState<"" | Status>("");
+  const [from, setFrom] = useState<string>("");
+  const [to, setTo] = useState<string>("");
 
-  const [showAdd, setShowAdd] = useState(false);
-  const [editRow, setEditRow] = useState<Row | null>(null);
-  const [deleting, setDeleting] = useState<number | null>(null);
+  // modal
+  const [open, setOpen] = useState<boolean>(false);
+  const [mode, setMode] = useState<"add" | "edit">("add");
+  const [saving, setSaving] = useState<boolean>(false);
+  const [editId, setEditId] = useState<number | null>(null);
 
-  const pageSize = 10;
-  const totalPages = useMemo(
-    () => Math.max(1, Math.ceil(total / pageSize)),
-    [total]
-  );
+  const [form, setForm] = useState<FormState>({
+    nama_produk: "",
+    sn: "",
+    imei: "",
+    storage: "",
+    warna: "",
+    garansi: "",
+    asal: "",
+    harga_modal: "",
+    tanggal_masuk: "",
+  });
 
-  const load = useCallback(async () => {
+  function resetForm() {
+    setForm({
+      nama_produk: "",
+      sn: "",
+      imei: "",
+      storage: "",
+      warna: "",
+      garansi: "",
+      asal: "",
+      harga_modal: "",
+      tanggal_masuk: "",
+    });
+  }
+
+  async function load() {
     setLoading(true);
-    try {
-      const sp = new URLSearchParams();
-      if (status !== "ALL") sp.set("status", status);
-      if (q.trim()) sp.set("q", q.trim());
-      const fIso = dmyToISO(from);
-      const tIso = dmyToISO(to);
-      if (fIso) sp.set("from", fIso);
-      if (tIso) sp.set("to", tIso);
-      sp.set("page", String(page));
-      sp.set("pageSize", String(pageSize));
+    const params = new URLSearchParams();
+    if (q.trim()) params.set("q", q.trim());
+    if (status) params.set("status", status);
+    if (from) params.set("from", from);
+    if (to) params.set("to", to);
+    const res = await fetch(`/api/stok?${params.toString()}`, { cache: "no-store" });
+    const json: { ok: boolean; data: StokRow[] } = await res.json();
+    if (json.ok) setRows(json.data);
+    setLoading(false);
+  }
 
-      const resp = await fetchJSON<ListResp>(`/api/stok?${sp.toString()}`);
-      if (!resp.ok) throw new Error(resp.error || "Gagal memuat data");
-      setRows(resp.data ?? []);
-      setTotal(resp.total ?? 0);
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function startAdd() {
+    resetForm();
+    setMode("add");
+    setEditId(null);
+    setOpen(true);
+  }
+
+  function startEdit(r: StokRow) {
+    setEditId(r.id); // penting: simpan id baris yang akan diupdate
+    setForm({
+      nama_produk: r.nama_produk ?? "",
+      sn: r.sn ?? "",
+      imei: r.imei ?? "",
+      storage: r.storage ?? "",
+      warna: r.warna ?? "",
+      garansi: r.garansi ?? "",
+      asal: r.asal ?? "",
+      harga_modal: r.harga_modal != null ? String(r.harga_modal) : "",
+      tanggal_masuk: (r.tanggal_masuk ?? "").slice(0, 10),
+    });
+    setMode("edit");
+    setOpen(true);
+  }
+
+  async function submitAdd() {
+    setSaving(true);
+    try {
+      const res = await fetch("/api/stok", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          nama_produk: form.nama_produk,
+          sn: form.sn || null,
+          imei: form.imei || null,
+          storage: form.storage || null,
+          warna: form.warna || null,
+          garansi: form.garansi || null,
+          asal: form.asal || null,
+          harga_modal: form.harga_modal ? Number(form.harga_modal) : null,
+          tanggal_masuk: form.tanggal_masuk || null,
+        }),
+      });
+      const json = await res.json();
+      if (!json.ok) throw new Error(json.error || "Gagal menyimpan");
+      setOpen(false);
+      await load();
     } catch (e) {
       alert((e as Error).message);
     } finally {
-      setLoading(false);
+      setSaving(false);
     }
-  }, [status, q, from, to, page]);
+  }
 
-  useEffect(() => {
-    void load();
-  }, [load]);
+  async function submitEdit() {
+    if (!editId) {
+      alert("id wajib");
+      return;
+    }
+    setSaving(true);
+    try {
+      const res = await fetch("/api/stok", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: editId, // <- kirim id ke API
+          nama_produk: form.nama_produk || undefined,
+          sn: form.sn || undefined,
+          imei: form.imei || undefined,
+          storage: form.storage || undefined,
+          warna: form.warna || undefined,
+          garansi: form.garansi || undefined,
+          asal: form.asal || undefined,
+          harga_modal: form.harga_modal ? Number(form.harga_modal) : undefined,
+          tanggal_masuk: form.tanggal_masuk || undefined,
+        }),
+      });
+      const json = await res.json();
+      if (!json.ok) throw new Error(json.error || "Gagal menyimpan");
+      setOpen(false);
+      await load();
+    } catch (e) {
+      alert((e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  }
 
-  const onChangeStatus = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    setStatus(e.target.value as Status);
-    setPage(1);
-  };
+  async function removeRow(id: number) {
+    if (!confirm("Hapus stok ini?")) return;
+    const res = await fetch("/api/stok", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id }),
+    });
+    const json = await res.json();
+    if (!json.ok) {
+      alert(json.error || "Gagal menghapus");
+      return;
+    }
+    await load();
+  }
 
   return (
-    <div className="max-w-6xl mx-auto px-4 py-6">
+    <div className="max-w-6xl px-4 py-6 mx-auto">
       <div className="mb-4 flex items-center justify-between">
         <h1 className="text-xl font-semibold">Stok Unit</h1>
         <button
-          className="rounded-md bg-black text-white px-3 py-2 text-sm"
-          onClick={() => setShowAdd(true)}
+          onClick={startAdd}
+          className="rounded-md bg-black px-3 py-2 text-sm text-white"
         >
           + Tambah Stok
         </button>
       </div>
 
-      {/* Filters */}
-      <div className="flex gap-2 mb-4 flex-wrap">
+      {/* Filters ringkas */}
+      <div className="mb-4 flex gap-2 flex-wrap">
         <select
+          className="rounded-md border px-2 py-2 text-sm"
           value={status}
-          onChange={onChangeStatus}
-          className="border rounded px-3 py-2 text-sm"
+          onChange={(e) => setStatus(e.target.value as "" | Status)}
         >
-          <option value="ALL">Semua status</option>
+          <option value="">Semua status</option>
           <option value="READY">READY</option>
           <option value="SOLD">SOLD</option>
         </select>
-
         <input
+          className="rounded-md border px-3 py-2 text-sm min-w-[260px]"
+          placeholder="Cari (produk/SN/IMEI/storage/warna)"
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder="Cari (produk/SN/IMEI/storage/warna)"
-          className="border rounded px-3 py-2 text-sm w-[280px]"
         />
         <input
+          type="date"
+          className="rounded-md border px-3 py-2 text-sm"
           value={from}
           onChange={(e) => setFrom(e.target.value)}
-          placeholder="dd/mm/yyyy"
-          className="border rounded px-3 py-2 text-sm w-[120px]"
         />
         <input
+          type="date"
+          className="rounded-md border px-3 py-2 text-sm"
           value={to}
           onChange={(e) => setTo(e.target.value)}
-          placeholder="dd/mm/yyyy"
-          className="border rounded px-3 py-2 text-sm w-[120px]"
         />
-        <button onClick={() => setPage(1)} className="border rounded px-3 py-2 text-sm">
+        <button
+          onClick={load}
+          className="rounded-md border px-3 py-2 text-sm"
+        >
           Terapkan
         </button>
       </div>
 
-      {/* Tabel */}
-      <div className="border rounded-md overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="[&>th]:text-left [&>th]:p-2 border-b bg-gray-50">
-              <th>Produk</th>
-              <th>SN</th>
-              <th>IMEI</th>
-              <th>Varian</th>
-              <th>Garansi</th>
-              <th>Asal</th>
-              <th>Modal</th>
-              <th>Tgl Masuk</th>
-              <th>Status</th>
-              <th className="text-center">Aksi</th>
+      <div className="overflow-x-auto rounded-md border">
+        <table className="min-w-full text-sm">
+          <thead className="bg-gray-50">
+            <tr>
+              <th className="p-2 text-left">Produk</th>
+              <th className="p-2 text-left">SN</th>
+              <th className="p-2 text-left">IMEI</th>
+              <th className="p-2 text-left">Varian</th>
+              <th className="p-2 text-left">Garansi</th>
+              <th className="p-2 text-left">Asal</th>
+              <th className="p-2 text-right">Modal</th>
+              <th className="p-2 text-left">Tgl Masuk</th>
+              <th className="p-2 text-left">Status</th>
+              <th className="p-2 text-left">Aksi</th>
             </tr>
           </thead>
           <tbody>
@@ -189,27 +272,29 @@ export default function Client() {
               </tr>
             ) : (
               rows.map((r) => (
-                <tr key={r.id} className="[&>td]:p-2 border-t">
-                  <td>{r.nama_produk || "-"}</td>
-                  <td>{r.sn || "-"}</td>
-                  <td>{r.imei || "-"}</td>
-                  <td>{r.storage || "-"}</td>
-                  <td>{r.garansi || "-"}</td>
-                  <td>{r.asal_produk || "-"}</td>
-                  <td className="text-right">{rupiah(r.harga_modal)}</td>
-                  <td>{isoToDmy(r.tanggal_masuk)}</td>
-                  <td>{r.status || "-"}</td>
-                  <td className="text-center">
-                    <div className="inline-flex gap-2">
+                <tr key={r.id} className="border-t">
+                  <td className="p-2">{r.nama_produk}</td>
+                  <td className="p-2">{r.sn || "-"}</td>
+                  <td className="p-2">{r.imei || "-"}</td>
+                  <td className="p-2">{[r.storage, r.warna].filter(Boolean).join(" / ") || "-"}</td>
+                  <td className="p-2">{r.garansi || "-"}</td>
+                  <td className="p-2">{r.asal || "-"}</td>
+                  <td className="p-2 text-right">
+                    {r.harga_modal != null ? r.harga_modal.toLocaleString("id-ID") : "-"}
+                  </td>
+                  <td className="p-2">{(r.tanggal_masuk ?? "").slice(0, 10) || "-"}</td>
+                  <td className="p-2">{r.status}</td>
+                  <td className="p-2">
+                    <div className="flex items-center gap-2">
                       <button
-                        className="border px-2 py-1 rounded"
-                        onClick={() => setEditRow(r)}
+                        onClick={() => startEdit(r)}
+                        className="rounded border px-2 py-1"
                       >
                         Edit
                       </button>
                       <button
-                        className="border px-2 py-1 rounded text-red-600"
-                        onClick={() => setDeleting(r.id)}
+                        onClick={() => removeRow(r.id)}
+                        className="rounded border border-red-400 px-2 py-1 text-red-600"
                       >
                         Hapus
                       </button>
@@ -222,240 +307,117 @@ export default function Client() {
         </table>
       </div>
 
-      {/* Pagination */}
-      <div className="flex items-center justify-between mt-3 text-sm">
-        <div>
-          Total {total} data • Hal {page} / {totalPages}
-        </div>
-        <div className="flex gap-2">
-          <button
-            className="border px-3 py-1 rounded disabled:opacity-50"
-            disabled={page <= 1}
-            onClick={() => setPage((p) => Math.max(1, p - 1))}
-          >
-            Prev
-          </button>
-          <button
-            className="border px-3 py-1 rounded disabled:opacity-50"
-            disabled={page >= totalPages}
-            onClick={() => setPage((p) => p + 1)}
-          >
-            Next
-          </button>
-        </div>
-      </div>
+      {/* Modal */}
+      {open && (
+        <div className="fixed inset-0 bg-black/30 grid place-items-center z-50">
+          <div className="w-[720px] max-w-[92vw] rounded-md bg-white p-4 shadow">
+            <div className="mb-3 flex items-center justify-between">
+              <div className="text-base font-semibold">
+                {mode === "add" ? "Tambah Stok" : "Edit Stok"}
+              </div>
+              <button onClick={() => setOpen(false)} className="text-sm opacity-70">Tutup</button>
+            </div>
 
-      {/* Modals */}
-      {showAdd && (
-        <AddModal onClose={() => setShowAdd(false)} onSaved={() => { setShowAdd(false); void load(); }} />
-      )}
-      {editRow && (
-        <EditModal row={editRow} onClose={() => setEditRow(null)} onSaved={() => { setEditRow(null); void load(); }} />
-      )}
-      {deleting != null && (
-        <DeleteModal id={deleting} onClose={() => setDeleting(null)} onDeleted={() => { setDeleting(null); void load(); }} />
-      )}
-    </div>
-  );
-}
+            <div className="grid grid-cols-2 gap-3">
+              <Input
+                value={form.nama_produk}
+                onChange={(v) => setForm((s) => ({ ...s, nama_produk: v }))}
+                placeholder="Nama produk *"
+              />
+              <Input
+                value={form.sn}
+                onChange={(v) => setForm((s) => ({ ...s, sn: v }))}
+                placeholder="SN"
+              />
 
-/* ===== Add Modal ===== */
-function AddModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
-  const [nama, setNama] = useState("");
-  const [sn, setSn] = useState("");
-  const [imei, setImei] = useState("");
-  const [storage, setStorage] = useState("");
-  const [warna, setWarna] = useState("");
-  const [garansi, setGaransi] = useState("");
-  const [asal, setAsal] = useState("");
-  const [modal, setModal] = useState("");
-  const [tgl, setTgl] = useState("");
-  const [saving, setSaving] = useState(false);
+              <Input
+                value={form.imei}
+                onChange={(v) => setForm((s) => ({ ...s, imei: v }))}
+                placeholder="IMEI"
+              />
+              <Input
+                value={form.storage}
+                onChange={(v) => setForm((s) => ({ ...s, storage: v }))}
+                placeholder="Storage"
+              />
 
-  async function onSubmit(e: FormEvent) {
-    e.preventDefault();
-    if (!nama || !modal) return alert("Nama produk & harga modal wajib diisi");
-    setSaving(true);
-    try {
-      const body = {
-        nama_produk: nama,
-        sn,
-        imei,
-        storage,
-        warna,
-        garansi,
-        asal_produk: asal,
-        harga_modal: Number(modal || 0),
-        tanggal_masuk: dmyToISO(tgl),
-      };
-      const resp = await fetchJSON<MutResp>("/api/stok", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      if (!resp.ok) throw new Error(resp.error || "Gagal menambah stok");
-      onSaved();
-    } catch (err) {
-      alert((err as Error).message);
-    } finally {
-      setSaving(false);
-    }
-  }
+              <Input
+                value={form.warna}
+                onChange={(v) => setForm((s) => ({ ...s, warna: v }))}
+                placeholder="Warna"
+              />
+              <Input
+                value={form.garansi}
+                onChange={(v) => setForm((s) => ({ ...s, garansi: v }))}
+                placeholder="Garansi"
+              />
 
-  return (
-    <div className="fixed inset-0 grid place-items-center bg-black/50 z-50">
-      <div className="bg-white rounded-xl p-4 w-[720px] max-w-[95vw]">
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="font-semibold">Tambah Stok</h3>
-          <button onClick={onClose}>Tutup</button>
-        </div>
+              <Input
+                value={form.asal}
+                onChange={(v) => setForm((s) => ({ ...s, asal: v }))}
+                placeholder="Asal produk"
+              />
+              <Input
+                value={form.harga_modal}
+                onChange={(v) => setForm((s) => ({ ...s, harga_modal: v }))}
+                placeholder="Harga modal"
+                type="number"
+              />
 
-        <form onSubmit={onSubmit} className="grid grid-cols-2 gap-3">
-          <input className="border rounded px-3 py-2" placeholder="Nama produk *" value={nama} onChange={(e) => setNama(e.target.value)} />
-          <input className="border rounded px-3 py-2" placeholder="Serial Number" value={sn} onChange={(e) => setSn(e.target.value)} />
-          <input className="border rounded px-3 py-2" placeholder="IMEI" value={imei} onChange={(e) => setImei(e.target.value)} />
-          <input className="border rounded px-3 py-2" placeholder="Storage" value={storage} onChange={(e) => setStorage(e.target.value)} />
-          <input className="border rounded px-3 py-2" placeholder="Warna" value={warna} onChange={(e) => setWarna(e.target.value)} />
-          <input className="border rounded px-3 py-2" placeholder="Garansi" value={garansi} onChange={(e) => setGaransi(e.target.value)} />
-          <input className="border rounded px-3 py-2" placeholder="Asal produk" value={asal} onChange={(e) => setAsal(e.target.value)} />
-          <input className="border rounded px-3 py-2" placeholder="Harga modal *" inputMode="numeric" value={modal} onChange={(e) => setModal(e.target.value)} />
-          <input className="border rounded px-3 py-2" placeholder="dd/mm/yyyy" value={tgl} onChange={(e) => setTgl(e.target.value)} />
+              <input
+                type="date"
+                className="w-full rounded-md border px-3 py-2 text-sm"
+                value={form.tanggal_masuk}
+                onChange={(e) => setForm((s) => ({ ...s, tanggal_masuk: e.target.value }))}
+              />
+            </div>
 
-          <div className="col-span-2 flex justify-end gap-2">
-            <button type="button" onClick={onClose} className="border px-4 py-2 rounded">
-              Batal
-            </button>
-            <button type="submit" className="bg-black text-white px-4 py-2 rounded disabled:opacity-50" disabled={saving}>
-              {saving ? "Menyimpan..." : "Simpan"}
-            </button>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                onClick={() => setOpen(false)}
+                className="rounded border px-3 py-2 text-sm"
+                disabled={saving}
+              >
+                Batal
+              </button>
+              {mode === "edit" ? (
+                <button
+                  onClick={submitEdit}
+                  disabled={saving}
+                  className="rounded bg-black px-3 py-2 text-sm text-white"
+                >
+                  {saving ? "Menyimpan..." : "Simpan"}
+                </button>
+              ) : (
+                <button
+                  onClick={submitAdd}
+                  disabled={saving}
+                  className="rounded bg-black px-3 py-2 text-sm text-white"
+                >
+                  {saving ? "Menyimpan..." : "Simpan"}
+                </button>
+              )}
+            </div>
           </div>
-        </form>
-      </div>
+        </div>
+      )}
     </div>
   );
 }
 
-/* ===== Edit Modal ===== */
-function EditModal({
-  row,
-  onClose,
-  onSaved,
-}: {
-  row: Row;
-  onClose: () => void;
-  onSaved: () => void;
+function Input(props: {
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+  type?: "text" | "number";
 }) {
-  const [nama, setNama] = useState(row.nama_produk ?? "");
-  const [sn, setSn] = useState(row.sn ?? "");
-  const [imei, setImei] = useState(row.imei ?? "");
-  const [storage, setStorage] = useState(row.storage ?? "");
-  const [warna, setWarna] = useState(row.warna ?? "");
-  const [garansi, setGaransi] = useState(row.garansi ?? "");
-  const [asal, setAsal] = useState(row.asal_produk ?? "");
-  const [modal, setModal] = useState(
-    row.harga_modal != null ? String(row.harga_modal) : ""
-  );
-  const [tgl, setTgl] = useState(isoToDmy(row.tanggal_masuk));
-  const [saving, setSaving] = useState(false);
-
-  async function onSubmit(e: FormEvent) {
-    e.preventDefault();
-    if (!nama || !modal) return alert("Nama produk & harga modal wajib diisi");
-    setSaving(true);
-    try {
-      const body = {
-        nama_produk: nama,
-        sn,
-        imei,
-        storage,
-        warna,
-        garansi,
-        asal_produk: asal,
-        harga_modal: Number(modal || 0),
-        tanggal_masuk: dmyToISO(tgl),
-      };
-      const resp = await fetchJSON<MutResp>(`/api/stok?id=${row.id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      if (!resp.ok) throw new Error(resp.error || "Gagal menyimpan");
-      onSaved();
-    } catch (err) {
-      alert((err as Error).message);
-    } finally {
-      setSaving(false);
-    }
-  }
-
   return (
-    <div className="fixed inset-0 grid place-items-center bg-black/50 z-50">
-      <div className="bg-white rounded-xl p-4 w-[720px] max-w-[95vw]">
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="font-semibold">Edit Stok</h3>
-          <button onClick={onClose}>Tutup</button>
-        </div>
-
-        <form onSubmit={onSubmit} className="grid grid-cols-2 gap-3">
-          <input className="border rounded px-3 py-2" placeholder="Nama produk *" value={nama} onChange={(e) => setNama(e.target.value)} />
-          <input className="border rounded px-3 py-2" placeholder="Serial Number" value={sn} onChange={(e) => setSn(e.target.value)} />
-          <input className="border rounded px-3 py-2" placeholder="IMEI" value={imei} onChange={(e) => setImei(e.target.value)} />
-          <input className="border rounded px-3 py-2" placeholder="Storage" value={storage} onChange={(e) => setStorage(e.target.value)} />
-          <input className="border rounded px-3 py-2" placeholder="Warna" value={warna} onChange={(e) => setWarna(e.target.value)} />
-          <input className="border rounded px-3 py-2" placeholder="Garansi" value={garansi} onChange={(e) => setGaransi(e.target.value)} />
-          <input className="border rounded px-3 py-2" placeholder="Asal produk" value={asal} onChange={(e) => setAsal(e.target.value)} />
-          <input className="border rounded px-3 py-2" placeholder="Harga modal *" inputMode="numeric" value={modal} onChange={(e) => setModal(e.target.value)} />
-          <input className="border rounded px-3 py-2" placeholder="dd/mm/yyyy" value={tgl} onChange={(e) => setTgl(e.target.value)} />
-
-          <div className="col-span-2 flex justify-end gap-2">
-            <button type="button" onClick={onClose} className="border px-4 py-2 rounded">
-              Batal
-            </button>
-            <button type="submit" disabled={saving} className="bg-black text-white px-4 py-2 rounded disabled:opacity-50">
-              {saving ? "Menyimpan..." : "Simpan"}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-}
-
-/* ===== Delete Modal ===== */
-function DeleteModal({
-  id,
-  onClose,
-  onDeleted,
-}: {
-  id: number;
-  onClose: () => void;
-  onDeleted: () => void;
-}) {
-  const [busy, setBusy] = useState(false);
-  async function doDelete() {
-    setBusy(true);
-    try {
-      const resp = await fetchJSON<MutResp>(`/api/stok?id=${id}`, { method: "DELETE" });
-      if (!resp.ok) throw new Error(resp.error || "Gagal menghapus");
-      onDeleted();
-    } catch (e) {
-      alert((e as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  }
-  return (
-    <div className="fixed inset-0 grid place-items-center bg-black/50 z-50">
-      <div className="bg-white rounded-xl p-5 w-[420px] max-w-[95vw]">
-        <h3 className="font-semibold mb-2">Hapus Data</h3>
-        <p className="text-sm mb-4">Yakin ingin menghapus item ini?</p>
-        <div className="flex justify-end gap-2">
-          <button onClick={onClose} className="border px-4 py-2 rounded">Batal</button>
-          <button onClick={doDelete} disabled={busy} className="bg-red-600 text-white px-4 py-2 rounded disabled:opacity-50">
-            {busy ? "Menghapus..." : "Hapus"}
-          </button>
-        </div>
-      </div>
-    </div>
+    <input
+      type={props.type ?? "text"}
+      className="w-full rounded-md border px-3 py-2 text-sm"
+      placeholder={props.placeholder}
+      value={props.value}
+      onChange={(e) => props.onChange(e.target.value)}
+    />
   );
 }
