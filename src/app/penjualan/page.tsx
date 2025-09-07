@@ -15,11 +15,11 @@ type Row = {
   referal: string | null;
 };
 
-export default function PenjualanPage() {
+export default function Client() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  // ---- table & filter (ringkas) ----
+  // ---- table & filter ----
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [q, setQ] = useState("");
@@ -50,7 +50,7 @@ export default function PenjualanPage() {
     };
   }, [query]);
 
-  // ---- modal open/close sinkron dengan ?aksi=tambah ----
+  // ---- modal open/close via ?aksi=tambah ----
   const aksi = searchParams.get("aksi");
   const open = aksi === "tambah";
 
@@ -67,10 +67,7 @@ export default function PenjualanPage() {
     router.push(qs ? `/penjualan?${qs}` : "/penjualan", { scroll: false });
   };
 
-  const reload = () => {
-    // cukup trigger ulang effect dengan menyetel ulang state minimal
-    setQ((s) => s); // no-op
-  };
+  const reload = () => setQ((s) => s); // trigger re-fetch
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-6">
@@ -84,7 +81,7 @@ export default function PenjualanPage() {
         </button>
       </div>
 
-      {/* Filter ringkas */}
+      {/* Filter */}
       <div className="mb-3 flex flex-wrap gap-2">
         <input
           value={q}
@@ -248,140 +245,69 @@ function TambahPenjualanModal({
   }
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 p-4"
-      role="dialog"
-      aria-modal="true"
-    >
+    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 p-4" role="dialog" aria-modal="true">
       <div className="w-full max-w-2xl rounded-lg bg-white">
         <div className="flex items-center justify-between border-b px-4 py-3">
           <h2 className="font-medium">Tambah Penjualan</h2>
-          <button onClick={onClose} className="opacity-70 hover:opacity-100">
-            ✕
-          </button>
+          <button onClick={onClose} className="opacity-70 hover:opacity-100">✕</button>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-3 px-4 py-4">
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
               <label className="mb-1 block text-sm">Invoice *</label>
-              <input
-                value={invoice}
-                onChange={(e) => setInvoice(e.target.value)}
-                className="w-full rounded border px-3 py-2"
-                required
-              />
+              <input value={invoice} onChange={(e) => setInvoice(e.target.value)} className="w-full rounded border px-3 py-2" required />
             </div>
             <div>
               <label className="mb-1 block text-sm">Tanggal *</label>
-              <input
-                type="date"
-                value={tanggal}
-                onChange={(e) => setTanggal(e.target.value)}
-                className="w-full rounded border px-3 py-2"
-                required
-              />
+              <input type="date" value={tanggal} onChange={(e) => setTanggal(e.target.value)} className="w-full rounded border px-3 py-2" required />
             </div>
             <div>
               <label className="mb-1 block text-sm">Jenis *</label>
-              <select
-                value={jenis}
-                onChange={(e) => setJenis(e.target.value as "UNIT" | "AKSESORIS")}
-                className="w-full rounded border px-3 py-2"
-                required
-              >
+              <select value={jenis} onChange={(e) => setJenis(e.target.value as "UNIT" | "AKSESORIS")} className="w-full rounded border px-3 py-2" required>
                 <option value="UNIT">UNIT</option>
                 <option value="AKSESORIS">AKSESORIS</option>
               </select>
             </div>
             <div>
               <label className="mb-1 block text-sm">SN / SKU *</label>
-              <input
-                value={snSku}
-                onChange={(e) => setSnSku(e.target.value)}
-                className="w-full rounded border px-3 py-2"
-                placeholder="Contoh: IMEI / SN / SKU"
-                required
-              />
+              <input value={snSku} onChange={(e) => setSnSku(e.target.value)} className="w-full rounded border px-3 py-2" placeholder="Contoh: IMEI / SN / SKU" required />
             </div>
             <div>
               <label className="mb-1 block text-sm">Nama produk *</label>
-              <input
-                value={namaProduk}
-                onChange={(e) => setNamaProduk(e.target.value)}
-                className="w-full rounded border px-3 py-2"
-                required
-              />
+              <input value={namaProduk} onChange={(e) => setNamaProduk(e.target.value)} className="w-full rounded border px-3 py-2" required />
             </div>
             <div>
               <label className="mb-1 block text-sm">Harga jual *</label>
-              <input
-                type="number"
-                min={0}
-                value={Number.isNaN(hargaJual) ? 0 : hargaJual}
-                onChange={(e) => setHargaJual(Number(e.target.value))}
-                className="w-full rounded border px-3 py-2"
-                required
-              />
+              <input type="number" min={0} value={Number.isNaN(hargaJual) ? 0 : hargaJual} onChange={(e) => setHargaJual(Number(e.target.value))} className="w-full rounded border px-3 py-2" required />
             </div>
-
             <div>
               <label className="mb-1 block text-sm">Warna</label>
-              <input
-                value={warna}
-                onChange={(e) => setWarna(e.target.value)}
-                className="w-full rounded border px-3 py-2"
-              />
+              <input value={warna} onChange={(e) => setWarna(e.target.value)} className="w-full rounded border px-3 py-2" />
             </div>
             <div>
               <label className="mb-1 block text-sm">Storage</label>
-              <input
-                value={storage}
-                onChange={(e) => setStorage(e.target.value)}
-                className="w-full rounded border px-3 py-2"
-              />
+              <input value={storage} onChange={(e) => setStorage(e.target.value)} className="w-full rounded border px-3 py-2" />
             </div>
             <div>
               <label className="mb-1 block text-sm">Garansi</label>
-              <input
-                value={garansi}
-                onChange={(e) => setGaransi(e.target.value)}
-                className="w-full rounded border px-3 py-2"
-              />
+              <input value={garansi} onChange={(e) => setGaransi(e.target.value)} className="w-full rounded border px-3 py-2" />
             </div>
-
             <div>
               <label className="mb-1 block text-sm">Nama pembeli</label>
-              <input
-                value={pembeli}
-                onChange={(e) => setPembeli(e.target.value)}
-                className="w-full rounded border px-3 py-2"
-              />
+              <input value={pembeli} onChange={(e) => setPembeli(e.target.value)} className="w-full rounded border px-3 py-2" />
             </div>
             <div>
               <label className="mb-1 block text-sm">No. WA</label>
-              <input
-                value={noWa}
-                onChange={(e) => setNoWa(e.target.value)}
-                className="w-full rounded border px-3 py-2"
-              />
+              <input value={noWa} onChange={(e) => setNoWa(e.target.value)} className="w-full rounded border px-3 py-2" />
             </div>
             <div className="sm:col-span-2">
               <label className="mb-1 block text-sm">Alamat</label>
-              <input
-                value={alamat}
-                onChange={(e) => setAlamat(e.target.value)}
-                className="w-full rounded border px-3 py-2"
-              />
+              <input value={alamat} onChange={(e) => setAlamat(e.target.value)} className="w-full rounded border px-3 py-2" />
             </div>
             <div className="sm:col-span-2">
               <label className="mb-1 block text-sm">Referal</label>
-              <input
-                value={referal}
-                onChange={(e) => setReferal(e.target.value)}
-                className="w-full rounded border px-3 py-2"
-                placeholder="(opsional)"
-              />
+              <input value={referal} onChange={(e) => setReferal(e.target.value)} className="w-full rounded border px-3 py-2" placeholder="(opsional)" />
             </div>
           </div>
 
@@ -392,18 +318,8 @@ function TambahPenjualanModal({
           )}
 
           <div className="mt-2 flex items-center justify-end gap-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded border px-4 py-2 hover:bg-gray-50"
-            >
-              Batal
-            </button>
-            <button
-              type="submit"
-              disabled={submitting}
-              className="rounded bg-black px-4 py-2 text-white hover:opacity-90 disabled:opacity-60"
-            >
+            <button type="button" onClick={onClose} className="rounded border px-4 py-2 hover:bg-gray-50">Batal</button>
+            <button type="submit" disabled={submitting} className="rounded bg-black px-4 py-2 text-white hover:opacity-90 disabled:opacity-60">
               {submitting ? "Menyimpan..." : "Simpan"}
             </button>
           </div>
